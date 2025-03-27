@@ -1,0 +1,24 @@
+
+input_dim: 1024
+hidden_dim: 512
+# -- training settings related
+training_settings:
+  optimizer: 'adamw'
+  scheduler: 'onecycle'
+  anneal_strategy: 'linear'
+  loss_criterion: 'cross_entropy'
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.0002
+  num_workers: 6
+
+# -- task related
+num_classes: 2
+class_names:
+ - sexism
+ - no-sexism
+report_class: 'sexism'
+task: 'hard_label_task4'
+language_filter: both
+device: 'cpu'
+seed: 42
