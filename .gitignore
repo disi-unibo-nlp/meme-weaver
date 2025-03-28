@@ -3,6 +3,7 @@ exist2024_memes_dataset/
 output*/
 wandb/
 data/embeddings
+playground.py
 HyperHatePrompt.ipynb - Colab.pdf
 *.sh
 

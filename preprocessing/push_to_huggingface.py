@@ -41,10 +41,9 @@ df_labelled['image_path'] = df_labelled['meme'].apply(get_image_path)
 
 # Load the CSV file containing the BLIP captions
 blip_csv = pd.read_csv(os.path.join("data", "blip_captions.csv"))
-df_labelled['blip_caption'] = df_labelled['meme'].apply(get_captions)
-
-import pdb; pdb.set_trace()
-
+# meme_id to string
+blip_csv['meme_id'] = blip_csv['meme_id'].astype(str)
+df_labelled['blip_caption'] = df_labelled['id_EXIST'].apply(get_captions)
 
 df_labelled = df_labelled[["id_EXIST", "lang", "text", "hard_label_task4", "image_path", "blip_caption"]]
 
