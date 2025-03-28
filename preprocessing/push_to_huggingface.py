@@ -4,6 +4,12 @@ import pandas as pd
 from datasets import Dataset, DatasetDict, Features, Value, Image
 
 
+def get_captions(meme):
+    caption = blip_csv[blip_csv['meme_id'] == meme]['blip_caption'].values[0]
+
+    return caption
+
+
 def get_image_path(meme):
     path = os.path.join("exist2024_memes_dataset", "training", "memes", meme)
 
@@ -20,6 +26,7 @@ features = Features({
     "id_EXIST": Value("string"),
     "lang": Value("string"),
     "text": Value("string"),
+    "blip_caption": Value("string"),
     "hard_label_task4": Value("int8"),
     "image_path": Image()  # This will ensure that image data is handled correctly.
 })
@@ -31,7 +38,18 @@ with open(data_path, 'r', encoding='utf-8') as file:
 df_labelled  = pd.DataFrame.from_dict(data_labelled, orient='index')
 df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
 df_labelled['image_path'] = df_labelled['meme'].apply(get_image_path)
-df_labelled = df_labelled[["id_EXIST", "lang", "text", "hard_label_task4", "image_path"]]
+
+# Load the CSV file containing the BLIP captions
+blip_csv = pd.read_csv(os.path.join("data", "blip_captions.csv"))
+df_labelled['blip_caption'] = df_labelled['meme'].apply(get_captions)
+
+import pdb; pdb.set_trace()
+
+
+df_labelled = df_labelled[["id_EXIST", "lang", "text", "hard_label_task4", "image_path", "blip_caption"]]
+
+
+
 
 df_shuffled = df_labelled.sample(frac=1, random_state=42).reset_index(drop=True)
 

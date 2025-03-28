@@ -1,7 +1,10 @@
 .idea/
 exist2024_memes_dataset/
+output*/
+wandb/
 data/embeddings
 HyperHatePrompt.ipynb - Colab.pdf
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,4 +1,7 @@
+import os
+import math
 import torch
+from codecarbon import EmissionsTracker
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 
 
@@ -35,3 +38,42 @@ def evaluate_model(model_output):
         }
     
     return report
+
+def get_carburacy(score, emission_train, emission_test, alpha=10, beta_train=1, beta_test=100):
+    carburacy_train = None
+    if emission_train is not None:
+        carburacy_train = math.exp(math.log(score/100, alpha)) / (1 + emission_train * beta_train)
+        carburacy_train = round(100 * carburacy_train, 2)
+    carburacy_test = None
+    if emission_test is not None:
+        carburacy_test = math.exp(math.log(score/100, alpha)) / (1 + emission_test * beta_test)
+        carburacy_test = round(100 * carburacy_test, 2)
+    carburacy = None
+    if carburacy_train is not None and carburacy_test is not None:
+        carburacy = (2 * carburacy_train * carburacy_test) / (carburacy_train + carburacy_test)
+        carburacy = round(100 * carburacy, 2)
+    return carburacy_train, carburacy_test, carburacy
+
+
+
+def predict_class(trainer, predict_dataset, max_predict_samples, training_args, tokenizer, train_emissions, split):
+    test_tracker = EmissionsTracker(measure_power_secs=100000, save_to_file=False)
+    test_tracker.start()
+    predict_results = trainer.predict(predict_dataset, metric_key_prefix=split)
+    test_emissions = test_tracker.stop()
+
+    metrics = predict_results.metrics
+
+    metrics[f"{split}_samples"] = min(max_predict_samples, len(predict_dataset))
+    metrics[f"{split}_emissions"] = test_emissions
+
+    # trainer.log_metrics(split, metrics)
+    trainer.save_metrics(split, metrics)
+
+    predictions = predict_results.predictions
+    output_prediction_file = os.path.join(training_args.output_dir, f"generated_{split}_set.txt")
+    
+    with open(output_prediction_file, 'w') as file:
+        # Write each element of the list on a new line
+        for item in predictions:
+            file.write(f"{item}\n")
