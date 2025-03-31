@@ -147,7 +147,7 @@ class DataTrainingArguments:
     dataset_subset: Optional[str] = field(
         default=None, metadata={"help": "The subset of the dataset to use."}
     )   
-    add_refs: bool = field(
+    add_caption: bool = field(
         default=False,
         metadata={"help": "Add references to the input."},
     ) 
@@ -447,23 +447,8 @@ def main():
             inputs1.append(examples[data_args.input_column][i])
             targets.append(examples[data_args.target_column][i])
         
-        if data_args.add_refs:
-            references = []
-            for i in range(len(examples["atto_references"])):
-
-                references_text = ""
-                if examples["atto_references"][i] is not None:
-                    refs = examples["atto_references"][i]
-                    references_text += " ".join([f"[ART_REF_{ref_num + 1}] {ref['article_text']}" for ref_num, ref in enumerate(refs)])
-
-                if examples["confl_references"][i] is not None:
-                    refs = examples["confl_references"][i]
-                    confl_refs = " ".join([f"[CONFL_REF_{ref_num + 1}] {ref['article_text']}" for ref_num, ref in enumerate(refs)])
-                    references_text += " " + confl_refs
-
-                references.append(references_text)
-        
-            inputs1 = [inp + " " + ref  for inp, ref in zip(inputs1, references)]
+        if data_args.add_caption: 
+            inputs1 = [inp + "[CPT]" + cpt  for inp, cpt in zip(inputs1, examples["blip_caption"])]
 
         inputs1 = [prefix + inp for inp in inputs1]
         # Tokenize the texts
