@@ -1,9 +1,18 @@
+import sys
+sys.path.append('./')
+
 import os
 import math
 import torch
 from codecarbon import EmissionsTracker
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    accuracy_score
+)
 
+from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
     
@@ -77,3 +86,22 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
         # Write each element of the list on a new line
         for item in predictions:
             file.write(f"{item}\n")
+    
+    return metrics
+
+
+model_constructors = {
+    "xlm-roberta": XLMRobertaForSequenceClassification,
+}
+
+def get_model(model_name, model_kwargs):
+    if any(substring in model_name for substring in model_constructors):
+        for substring, model_constructor in model_constructors.items():
+            if substring in model_name:
+                model = model_constructor.from_pretrained(model_name, **model_kwargs)
+                break
+    else:
+        print(f"{model_name} not supported")
+        sys.exit()
+    
+    return model

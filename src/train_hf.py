@@ -35,7 +35,7 @@ from transformers import (
     MBartTokenizerFast,
     get_scheduler,
 )
-from utils import predict_class
+from utils import predict_class, get_model
 from src.trainer_hf import Trainer
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
@@ -125,7 +125,6 @@ class DataTrainingArguments:
         default=None, metadata={"help": "A csv or a json file containing the validation data."}
     )
     test_file: Optional[str] = field(default=None, metadata={"help": "A csv or a json file containing the test data."})
-    debug_mode: bool = field(default=False, metadata={"help": "If debug mode."})
     max_seq_length: Optional[int] = field(
         default=1024,
         metadata={
@@ -232,10 +231,7 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
-    if data_args.debug_mode:
-        wandb.init(mode="disabled")
-
+    
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -317,7 +313,7 @@ def main():
     
     if training_args.do_train:
         
-        model = AutoModelForSequenceClassification.from_pretrained(model_args.model_name_or_path, **model_kwargs)
+        model = get_model(model_args.model_name_or_path, model_kwargs)
         if not model_args.no_peft:
             # based on config
             peft_config = LoraConfig(
@@ -337,9 +333,9 @@ def main():
         checkpoint_folder = next(folder for folder in os.listdir(training_args.output_dir) if folder.startswith("checkpoint-"))
         # Append the checkpoint folder to the base path
         checkpoint_path = os.path.join(training_args.output_dir, checkpoint_folder)
-        model = AutoModelForSequenceClassification.from_pretrained(checkpoint_path, **model_kwargs)
+        model = get_model(checkpoint_path, model_kwargs)
     
-    if tokenizer.pad_token is None:
+    if model.config.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = tokenizer.pad_token_id
 
@@ -565,6 +561,11 @@ def main():
         pred_ids = torch.argmax(logits[0], dim=-1)
         return pred_ids
     
+    # Compute frequency of evaluation
+    n_steps = len(train_dataset)/training_args.per_device_train_batch_size * training_args.num_train_epochs
+    training_args.eval_steps = n_steps // 8
+    training_args.save_steps = n_steps // 8
+
     # TODO: check if Seq2SeqTrainer is needed since we use seq-to-seq models like MBart
     # Initialize our Trainer
     trainer = Trainer(
@@ -612,15 +613,16 @@ def main():
         max_eval_samples = (
             data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         )
-        predict_class(trainer, eval_dataset, max_eval_samples, training_args, tokenizer, train_emissions, "eval")
-
+        eval_metrics = predict_class(trainer, eval_dataset, max_eval_samples, training_args, tokenizer, train_emissions, "eval")
+        wandb.log(eval_metrics)
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
         max_predict_samples = (
         data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
         )
-        predict_class(trainer, predict_dataset, max_predict_samples, training_args, tokenizer, train_emissions, "predict")
+        predict_metrics = predict_class(trainer, predict_dataset, max_predict_samples, training_args, tokenizer, train_emissions, "predict")
+        wandb.log(predict_metrics)
 
 if __name__ == "__main__":
     main()

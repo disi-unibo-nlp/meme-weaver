@@ -11,7 +11,7 @@ from tqdm import tqdm
 from colorama import Fore
 from preprocessing.dataset import get_dataloader
 from utils import get_optimizer_and_scheduler, evaluate_model
-from models.classifier import SimpleClassifier
+from memes_graph_enhanced.models.simple_classifier import SimpleClassifier
 
 
 def train(config):
