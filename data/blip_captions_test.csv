@@ -1,4 +1,4 @@
-meme_id,image_path,blip_caption
+meme_id,image_path,caption
 310001,test/memes/310001.jpeg,a close up of two people with a cell phone and a man with a tie
 310002,test/memes/310002.jpeg,there is a woman walking down the street with a bag
 310003,test/memes/310003.jpeg,a picture of a man with a beard and a hat holding a can

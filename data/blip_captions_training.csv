@@ -1,4 +1,4 @@
-meme_id,image_path,blip_caption
+meme_id,image_path,caption
 110001,training/memes/110001.jpeg,two posters with different characters of albert einstein and the same person
 110002,training/memes/110002.jpeg,a group of men in suits and ties standing next to each other
 110003,training/memes/110003.jpeg,a close up of a person holding a microphone in front of a poster
