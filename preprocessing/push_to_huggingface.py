@@ -1,11 +1,20 @@
 import os
 import json
 import pandas as pd
+from tqdm import tqdm
+from googletrans import Translator
 from datasets import Dataset, DatasetDict, Features, Value, Image
+
+CAPTION_MODEL = "qwen25vl"
+
+
+def translate_text(text):
+
+    return translator.translate(text, dest="en", src='es').text
 
 
 def get_captions(meme):
-    caption = blip_csv[blip_csv['meme_id'] == meme]['blip_caption'].values[0]
+    caption = caption_csv[caption_csv['meme_id'] == meme]['caption'].values[0]
 
     return caption
 
@@ -21,12 +30,15 @@ def majority_vote(labels):
     # If the number of YES is greater than or equal to half the total, return 1 (covers tie as well)
     return 1 if yes_count >= len(labels) / 2 else 0
 
+translator = Translator()
+tqdm.pandas()
 
 features = Features({
     "id_EXIST": Value("string"),
     "lang": Value("string"),
     "text": Value("string"),
-    "blip_caption": Value("string"),
+    "text_en": Value("string"),
+    f'{CAPTION_MODEL}_caption': Value("string"),
     "hard_label_task4": Value("int8"),
     "image_path": Image()  # This will ensure that image data is handled correctly.
 })
@@ -39,15 +51,24 @@ df_labelled  = pd.DataFrame.from_dict(data_labelled, orient='index')
 df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
 df_labelled['image_path'] = df_labelled['meme'].apply(get_image_path)
 
-# Load the CSV file containing the BLIP captions
-blip_csv = pd.read_csv(os.path.join("data", "blip_captions.csv"))
+print("Translating texts...")
+df_labelled['text_en'] = df_labelled.progress_apply(
+    lambda row: translate_text(row['text']) if row['lang'] == 'es' else row['text'],
+    axis=1
+)
+
+for _, row in df_labelled.iterrows():
+    id_ = row["id_EXIST"]
+    data_labelled[id_]["text_en"] = row["text_en"]
+
+# Load the CSV file containing the captions
+caption_csv = pd.read_csv(os.path.join("data", f'{CAPTION_MODEL}_captions_training.csv'))
+
 # meme_id to string
-blip_csv['meme_id'] = blip_csv['meme_id'].astype(str)
-df_labelled['blip_caption'] = df_labelled['id_EXIST'].apply(get_captions)
+caption_csv['meme_id'] = caption_csv['meme_id'].astype(str)
+df_labelled[f'{CAPTION_MODEL}_caption'] = df_labelled['id_EXIST'].apply(get_captions)
 
-df_labelled = df_labelled[["id_EXIST", "lang", "text", "hard_label_task4", "image_path", "blip_caption"]]
-
-
+df_labelled = df_labelled[["id_EXIST", "lang", "text", 'text_en', "hard_label_task4", "image_path", f'{CAPTION_MODEL}_caption']]
 
 
 df_shuffled = df_labelled.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -77,4 +98,3 @@ dataset = DatasetDict({
 # Replace "your_dataset_name" with your desired repository name.
 # You can also pass your Hugging Face token here or have it set in your environment.
 dataset.push_to_hub("paoloitaliani/memes_exist2024")
-
