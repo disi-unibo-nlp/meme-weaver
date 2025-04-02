@@ -12,6 +12,7 @@ from sklearn.metrics import (
     accuracy_score
 )
 
+from transformers import AutoModelForSequenceClassification
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
@@ -101,7 +102,6 @@ def get_model(model_name, model_kwargs):
                 model = model_constructor.from_pretrained(model_name, **model_kwargs)
                 break
     else:
-        print(f"{model_name} not supported")
-        sys.exit()
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, **model_kwargs)
     
     return model

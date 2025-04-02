@@ -205,6 +205,14 @@ class ModelArguments:
         default=False,
         metadata={"help": "Do not use PEFT."},
     )
+    num_gcn_layers: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": (
+                "The number of Rs_GCN layers to use."
+            )
+        },
+    )
     
 
 
@@ -301,6 +309,9 @@ def main():
         )
 
     device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
+
+    # Custom config hyperparameters
+    config.num_gcn_layers = model_args.num_gcn_layers
 
     model_kwargs = dict(
             torch_dtype="auto",
@@ -444,7 +455,7 @@ def main():
             targets.append(examples[data_args.target_column][i])
         
         if data_args.add_caption: 
-            inputs1 = [inp + "[CPT]" + cpt  for inp, cpt in zip(inputs1, examples["blip_caption"])]
+            inputs1 = [inp + "[CPT]" + cpt  for inp, cpt in zip(inputs1, examples["qwen25vl_caption"])]
 
         inputs1 = [prefix + inp for inp in inputs1]
         # Tokenize the texts

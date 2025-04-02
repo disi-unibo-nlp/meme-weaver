@@ -19,6 +19,7 @@ import math
 from typing import List, Optional, Tuple, Union
 
 import torch
+from torch import nn
 import torch.utils.checkpoint
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
@@ -33,7 +34,6 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import (
     XLM_ROBERTA_START_DOCSTRING,
     XLMRobertaPreTrainedModel,
     XLMRobertaModel,
-    XLMRobertaClassificationHead,
     XLM_ROBERTA_INPUTS_DOCSTRING,
 
 )
@@ -42,6 +42,92 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import (
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "XLMRobertaConfig"
+
+
+class Rs_GCN(nn.Module):
+    def __init__(self, hidden_size):
+        """
+        Initialize the Rs_GCN module.
+
+        Args:
+            hidden_size (int): Dimensionality of the input features.
+        """
+        super(Rs_GCN, self).__init__()
+        # Fully connected layer to compute φ(·) for transforming input embeddings.
+        self.phi = nn.Linear(hidden_size, hidden_size)
+        # Fully connected layer to compute γ(·) for transforming input embeddings.
+        self.gamma = nn.Linear(hidden_size, hidden_size)
+        # Linear transformation applied to the node features after aggregation.
+        self.W_g = nn.Linear(hidden_size, hidden_size)
+        # Residual weights linear layer applied on the aggregated features.
+        self.W_r = nn.Linear(hidden_size, hidden_size)
+
+    def forward(self, features):
+        """
+        Forward pass for the Rs_GCN layer.
+
+        Args:
+            embeddings (torch.Tensor): Input tensor of shape (batch_size, hidden_size)
+                                       Each row represents a node's feature.
+        Returns:
+            torch.Tensor: Updated node features of shape (batch_size, hidden_size)
+        """
+        # Transform input features using φ and γ functions.
+        phi_out = self.phi(features)  # Shape: (batch_size, hidden_size)
+        gamma_out = self.gamma(features)  # Shape: (batch_size, hidden_size)
+
+        # Compute the affinity matrix R as the dot product between transformed features.
+        R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
+
+        # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
+        R_norm = R / R.size(-1)
+
+        # Apply a linear transformation on the original features.
+        features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
+
+        # Aggregate neighboring features using the normalized affinity matrix.
+        RV = torch.matmul(R_norm, features_v)  # Shape: (batch_size, hidden_size)
+
+        # Apply a second linear transformation on the aggregated features.
+        transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
+
+        # Add a residual connection from the original features.
+        out = transformed + features
+
+        return out
+
+
+
+# Copied from transformers.models.roberta.modeling_roberta.RobertaClassificationHead with Roberta->XLMRoberta
+class XLMRobertaClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        classifier_dropout = (
+            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        )
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
+
+
+        self.rs_gcn_layers = nn.ModuleList(
+            [Rs_GCN(config.hidden_size) for _ in range(config.num_gcn_layers)]
+        )
+
+    def forward(self, features, **kwargs):
+        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
+
+        for gcn in self.rs_gcn_layers:
+            x = gcn(x)
+
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
 
 
 @add_start_docstrings(
