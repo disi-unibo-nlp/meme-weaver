@@ -14,6 +14,7 @@ from sklearn.metrics import (
 
 from transformers import AutoModelForSequenceClassification
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
+from models.modernbert_classifier import ModernBertForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
     
@@ -93,6 +94,7 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
 
 model_constructors = {
     "xlm-roberta": XLMRobertaForSequenceClassification,
+    "ModernBERT": ModernBertForSequenceClassification,
 }
 
 def get_model(model_name, model_kwargs):

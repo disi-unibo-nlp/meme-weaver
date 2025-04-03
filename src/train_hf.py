@@ -34,9 +34,10 @@ from transformers import (
     MBartTokenizer,
     MBartTokenizerFast,
     get_scheduler,
+    Trainer
 )
 from utils import predict_class, get_model
-from src.trainer_hf import Trainer
+# from src.trainer_hf_new import Trainer
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 from transformers.trainer_utils import get_last_checkpoint
@@ -268,9 +269,10 @@ def main():
     training_args.output_dir += "/" + training_args.run_name
     # assert not os.path.exists(training_args.output_dir), "Output directory already exists"
 
+    
     wandb.init(mode=data_args.logging,
-               name=training_args.run_name,
-               project=data_args.dataset_name.split("/")[1] + f"_{data_args.dataset_subset}",
+            name=training_args.run_name,
+            project=data_args.dataset_name.split("/")[1] + f"_{data_args.dataset_subset}",
     )
 
     # Detecting last checkpoint.
@@ -564,12 +566,13 @@ def main():
         return result
     
 
-    def preprocess_logits_for_metrics(logits):
+    def preprocess_logits_for_metrics(logits, labels):
         """
         Original Trainer may have a memory leak. 
         This is a workaround to avoid storing too many tensors that are not needed.
         """
-        pred_ids = torch.argmax(logits[0], dim=-1)
+        pred_ids = torch.argmax(logits, dim=-1)
+
         return pred_ids
     
     # Compute frequency of evaluation
