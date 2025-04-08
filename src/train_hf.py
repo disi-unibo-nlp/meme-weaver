@@ -214,6 +214,10 @@ class ModelArguments:
             )
         },
     )
+    save_affinity: bool = field(
+        default=False,
+        metadata={"help": "Do not use PEFT."},
+    )
     
 
 
@@ -308,12 +312,15 @@ def main():
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.float16,
+        # llm_int8_skip_modules=["rs_gcn_layers"]
         )
 
     device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
 
     # Custom config hyperparameters
     config.num_gcn_layers = model_args.num_gcn_layers
+    config.save_affinity = model_args.save_affinity
+    config.output_dir = training_args.output_dir
 
     model_kwargs = dict(
             torch_dtype="auto",
@@ -335,8 +342,9 @@ def main():
                     lora_dropout=0.1,
                     bias="none",
                     task_type="SEQ_CLS",
-                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "phi", "gamma", "W_g", "W_r"],
             )
+
             model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
             # add LoRA adaptor
@@ -627,7 +635,7 @@ def main():
         max_eval_samples = (
             data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         )
-        eval_metrics = predict_class(trainer, eval_dataset, max_eval_samples, training_args, tokenizer, train_emissions, "eval")
+        eval_metrics = predict_class(trainer, eval_dataset, max_eval_samples, training_args, "eval")
         wandb.log(eval_metrics)
 
     if training_args.do_predict:
@@ -635,7 +643,7 @@ def main():
         max_predict_samples = (
         data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
         )
-        predict_metrics = predict_class(trainer, predict_dataset, max_predict_samples, training_args, tokenizer, train_emissions, "predict")
+        predict_metrics = predict_class(trainer, predict_dataset, max_predict_samples, training_args, "predict")
         wandb.log(predict_metrics)
 
 if __name__ == "__main__":

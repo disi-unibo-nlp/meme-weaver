@@ -2,6 +2,10 @@ import os
 import shutil
 import argparse
 
+FOLDERS_TO_KEEP = ["xlm-roberta-large_texten_qwen25vl_caption_128batch_10eps_mami128_1gcn",
+                   "xlm-roberta-large_texten_batch128_10eps_1gcn",
+                   "xlm-roberta-large_batch140_10eps_1gcn"]
+
 def get_folders_in_path(directory):
     folders = []
     for entry in os.scandir(directory):
@@ -33,6 +37,9 @@ def main():
     folder_list = get_folders_in_path(args.folder)
 
     for folder in folder_list:
+            
+            if folder in FOLDERS_TO_KEEP:
+                continue
             # Specify the file path you want to delete
             file_path = os.path.join(args.folder, folder, "training_args.bin")
             remove_file(file_path)
@@ -44,10 +51,10 @@ def main():
             remove_file(file_path)
             
             folder_path = os.path.join(args.folder, folder)
-
             try:
                 final_folder_path = os.path.join(folder_path, get_folders_in_path(folder_path)[0])
-                remove_folder(final_folder_path)
+                if "checkpoint" in final_folder_path:
+                    remove_folder(final_folder_path)
             except:
                 print("No checkpoint folder found")
             
@@ -55,7 +62,6 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", default="output_hard_label_task4")
-    parser.add_argument("--remove", default="file")
 
     args = parser.parse_args()
     main()

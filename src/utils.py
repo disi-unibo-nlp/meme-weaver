@@ -15,6 +15,7 @@ from sklearn.metrics import (
 from transformers import AutoModelForSequenceClassification
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 from models.modernbert_classifier import ModernBertForSequenceClassification
+from models.llama_classifier import LlamaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
     
@@ -67,7 +68,7 @@ def get_carburacy(score, emission_train, emission_test, alpha=10, beta_train=1, 
 
 
 
-def predict_class(trainer, predict_dataset, max_predict_samples, training_args, tokenizer, train_emissions, split):
+def predict_class(trainer, predict_dataset, max_predict_samples, training_args, split):
     test_tracker = EmissionsTracker(measure_power_secs=100000, save_to_file=False)
     test_tracker.start()
     predict_results = trainer.predict(predict_dataset, metric_key_prefix=split)
@@ -82,6 +83,7 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     trainer.save_metrics(split, metrics)
 
     predictions = predict_results.predictions
+
     output_prediction_file = os.path.join(training_args.output_dir, f"generated_{split}_set.txt")
     
     with open(output_prediction_file, 'w') as file:
@@ -95,6 +97,7 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
 model_constructors = {
     "xlm-roberta": XLMRobertaForSequenceClassification,
     "ModernBERT": ModernBertForSequenceClassification,
+    "Meta-Llama": LlamaForSequenceClassification,
 }
 
 def get_model(model_name, model_kwargs):

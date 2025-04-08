@@ -15,10 +15,11 @@
 # limitations under the License.
 """PyTorch XLM-RoBERTa model."""
 
-import math
+import os
 from typing import Optional, Tuple, Union
 
 import torch
+import pickle
 from torch import nn
 import torch.utils.checkpoint
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
@@ -66,16 +67,17 @@ class XLMRobertaClassificationHead(nn.Module):
     def forward(self, features, **kwargs):
         x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
 
+        R_norm = None
         for gcn in self.rs_gcn_layers:
             # x = self.dropout(x)
-            x = gcn(x)
+            x, R_norm = gcn(x)
 
         x = self.dropout(x)
         x = self.dense(x)
         x = torch.tanh(x)
         x = self.dropout(x)
         x = self.out_proj(x)
-        return x
+        return x, R_norm
 
 
 @add_start_docstrings(
@@ -91,6 +93,8 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.config = config
+        self.save_affinity = config.save_affinity
+        self.output_dir = config.output_dir 
 
         self.roberta = XLMRobertaModel(config, add_pooling_layer=False)
         self.classifier = XLMRobertaClassificationHead(config)
@@ -139,7 +143,17 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = outputs[0]
-        logits = self.classifier(sequence_output)
+        logits, R_norm = self.classifier(sequence_output)
+
+        if self.save_affinity:
+            output_path = os.path.join(self.output_dir, "affinity_matrices")
+            os.makedirs(output_path, exist_ok=True)
+            
+            proc_files = len(os.listdir(output_path))
+
+            # Save data
+            with open(os.path.join(output_path, f'affinity_batch_{proc_files + 1}.pkl'), 'wb') as f:
+                pickle.dump({'R_norm': R_norm, 'input_ids': input_ids.cpu()}, f)
 
         loss = None
         if labels is not None:
