@@ -22,6 +22,7 @@ import torch
 import pickle
 from torch import nn
 import torch.utils.checkpoint
+from transformers.pytorch_utils import apply_chunking_to_forward
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from transformers.modeling_outputs import SequenceClassifierOutput
@@ -36,7 +37,8 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import (
     XLMRobertaPreTrainedModel,
     XLMRobertaModel,
     XLM_ROBERTA_INPUTS_DOCSTRING,
-
+    XLMRobertaIntermediate,
+    XLMRobertaOutput
 )
 
 from models.custom_modules import gcn_map
@@ -65,6 +67,14 @@ class XLMRobertaClassificationHead(nn.Module):
             [custom_gcn(config) for _ in range(config.num_gcn_layers)]
         )
 
+        self.apply_ffw = config.apply_ffw
+
+        if self.apply_ffw:
+            self.chunk_size_feed_forward = config.chunk_size_feed_forward
+            self.seq_len_dim = 1
+            self.intermediate = XLMRobertaIntermediate(config)
+            self.output = XLMRobertaOutput(config)
+
     def forward(self, features, **kwargs):
         x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
 
@@ -72,6 +82,11 @@ class XLMRobertaClassificationHead(nn.Module):
         for gcn in self.rs_gcn_layers:
             # x = self.dropout(x)
             x_upd, R_norm = gcn(x)
+
+            if self.apply_ffw:
+                x = apply_chunking_to_forward(
+                    self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, x_upd
+                )
 
             # Residual connection
             x = x_upd + x
@@ -82,6 +97,11 @@ class XLMRobertaClassificationHead(nn.Module):
         x = self.dropout(x)
         x = self.out_proj(x)
         return x, R_norm
+
+    def feed_forward_chunk(self, x):
+        intermediate_output = self.intermediate(x)
+        layer_output = self.output(intermediate_output, x)
+        return layer_output
 
 
 @add_start_docstrings(

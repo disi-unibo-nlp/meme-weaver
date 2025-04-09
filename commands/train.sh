@@ -69,10 +69,11 @@
 
 ######################## TRAINING ON MAMI DATASET ############
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=1 python3 src/train_hf.py \
---num_gcn_layers 2 \
---custom_gcn learn_upd \
+--apply_ffw \
+--num_gcn_layers 1 \
+--custom_gcn learn \
 --no_peft \
---run_name  xlm-roberta-large_batch140_10eps_1gcn_1.4upd \
+--run_name  xlm-roberta-large_batch140_10eps_1gcn_ffw \
 --input_column text \
 --target_column label \
 --logging online \

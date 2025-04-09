@@ -226,6 +226,10 @@ class ModelArguments:
         default=False,
         metadata={"help": "Do not use PEFT."},
     )
+    apply_ffw: bool = field(
+        default=False,
+        metadata={"help": "Apply feed forward network."},
+    )
     
 
 
@@ -329,6 +333,7 @@ def main():
     config.num_gcn_layers = model_args.num_gcn_layers
     config.custom_gcn = model_args.custom_gcn
     config.save_affinity = model_args.save_affinity
+    config.apply_ffw = model_args.apply_ffw
     config.output_dir = training_args.output_dir
 
     model_kwargs = dict(
