@@ -23,8 +23,6 @@ class Rs_GCN_upd(nn.Module):
         # Residual weights linear layer applied on the aggregated features.
         self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
 
-        self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-
     def forward(self, features):
         """
         Forward pass for the Rs_GCN_upd layer.
@@ -43,7 +41,7 @@ class Rs_GCN_upd(nn.Module):
         R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
 
         # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
-        R_norm = R / R.size(-1)
+        R_norm = F.softmax(R, dim=-1)
 
         # Apply a linear transformation on the original features.
         features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
@@ -56,9 +54,6 @@ class Rs_GCN_upd(nn.Module):
 
         # Add a residual connection from the original features.
         out = transformed + features
-
-        # Apply layer normalization.
-        out = self.layer_norm(out)
 
         return out, R_norm.cpu()
 
