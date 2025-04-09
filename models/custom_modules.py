@@ -40,10 +40,8 @@ class Rs_GCN_upd(nn.Module):
         # Compute the affinity matrix R as the dot product between transformed features.
         R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
 
-        R_norm = R / R.size(-1)
-
         # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
-        R_norm = F.softmax(R_norm, dim=-1)
+        R_norm = F.softmax(R, dim=-1)
 
         # Apply a linear transformation on the original features.
         features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
@@ -55,7 +53,7 @@ class Rs_GCN_upd(nn.Module):
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
         # Add a residual connection from the original features.
-        out = transformed + features
+        out = transformed # + features
 
         return out, R_norm.cpu()
 
