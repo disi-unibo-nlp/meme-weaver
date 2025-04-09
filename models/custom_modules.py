@@ -43,7 +43,7 @@ class Rs_GCN_upd(nn.Module):
         R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
 
         # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
-        R_norm = F.softmax(R, dim=-1)
+        R_norm = R / R.size(-1)
 
         # Apply a linear transformation on the original features.
         features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
