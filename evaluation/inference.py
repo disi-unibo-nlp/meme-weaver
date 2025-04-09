@@ -5,6 +5,7 @@ import os
 import json
 import torch
 import wandb
+import numpy as np
 
 from datasets import load_dataset
 
@@ -19,10 +20,12 @@ from transformers import (
 )
 
 from typing import Optional
+import torch.nn.functional as F
+from scipy.special import softmax
 from dataclasses import dataclass, field
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score, roc_auc_score, roc_curve, auc
 
-from src.utils import get_model, predict_class
+from src.utils import get_model
 
 
 @dataclass
@@ -190,6 +193,14 @@ class ModelArguments:
         default=False,
         metadata={"help": "Do not use PEFT."},
     )
+    custom_gcn: str = field(
+        default="learn",
+        metadata={
+            "help": (
+                "The type of graph computation to use."
+            )
+        },
+    )
 
 def main():
 
@@ -213,24 +224,23 @@ def main():
         return result
 
     def compute_metrics(p: EvalPrediction):
-        preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
+        
+
+        logits = p.predictions  
+        labels = p.label_ids
+
+        preds = np.argmax(logits, axis=1)
+        probs = softmax(logits, axis=1)[:, 1]
+
         result = {
-            "precision": round(100 * precision_score(p.label_ids, preds), 2),
-            "recall": round(100 * recall_score(p.label_ids, preds), 2),
-            "F1": round(100 * f1_score(p.label_ids, preds), 2),
-            "accuracy": round(100 * accuracy_score(p.label_ids, preds), 2),
+            "precision_macro": round(100 * precision_score(labels, preds, average='macro'), 2),
+            "recall_macro": round(100 * recall_score(labels, preds, average='macro'), 2),
+            "F1_macro": round(100 * f1_score(labels, preds, average='macro'), 2),
+            "accuracy": round(100 * accuracy_score(labels, preds), 2),
+            "roc_auc": round(100 * roc_auc_score(labels, probs), 2),
         }
         
         return result
-    
-    def preprocess_logits_for_metrics(logits, labels):
-        """
-        Original Trainer may have a memory leak. 
-        This is a workaround to avoid storing too many tensors that are not needed.
-        """
-        pred_ids = torch.argmax(logits, dim=-1)
-
-        return pred_ids
     
     wandb.init(mode="disabled")
 
@@ -260,6 +270,13 @@ def main():
         desc="Running tokenizer on prediction dataset",
     )
 
+    output_path = os.path.join(training_args.output_dir, training_args.run_name)
+
+    # Find the folder starting with "checkpoint-"
+    checkpoint_folder = next(folder for folder in os.listdir(output_path) if folder.startswith("checkpoint-"))
+    # Append the checkpoint folder to the base path
+    checkpoint_path = os.path.join(output_path, checkpoint_folder)
+
     config = AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         num_labels=num_labels,
@@ -267,17 +284,20 @@ def main():
         trust_remote_code=True,
     )
 
+    path_config_json = os.path.join(checkpoint_path, "config.json")
+    with open(path_config_json, "r") as f:
+        config_json = json.load(f)
+        
+    config.num_gcn_layers = config_json["num_gcn_layers"]
+    config.custom_gcn = config_json["custom_gcn"]
+    config.save_affinity = config_json["save_affinity"]
+    config.output_dir = config_json["output_dir"]
+
     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
 
     device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
 
-    output_path = os.path.join(training_args.output_dir, training_args.run_name)
-
     # Custom config hyperparameters
-    config.num_gcn_layers = model_args.num_gcn_layers
-    config.save_affinity = model_args.save_affinity
-    config.output_dir = output_path 
-
     model_kwargs = dict(
             torch_dtype="auto",
             # use_cache=False, # set to False as we're going to use gradient checkpointing
@@ -286,11 +306,6 @@ def main():
             config=config,
             cache_dir="../llms",
         )
-
-    # Find the folder starting with "checkpoint-"
-    checkpoint_folder = next(folder for folder in os.listdir(output_path) if folder.startswith("checkpoint-"))
-    # Append the checkpoint folder to the base path
-    checkpoint_path = os.path.join(output_path, checkpoint_folder)
     model = get_model(checkpoint_path, model_kwargs)
     model.config.label2id = label_to_id
     model.config.id2label = {id: label for label, id in config.label2id.items()}
@@ -306,7 +321,6 @@ def main():
             compute_metrics=compute_metrics,
             tokenizer=tokenizer,
             data_collator=data_collator,
-            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
 
 
