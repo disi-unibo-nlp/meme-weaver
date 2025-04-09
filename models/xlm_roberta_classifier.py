@@ -71,8 +71,11 @@ class XLMRobertaClassificationHead(nn.Module):
         R_norm = None
         for gcn in self.rs_gcn_layers:
             # x = self.dropout(x)
-            x, R_norm = gcn(x)
+            x_upd, R_norm = gcn(x)
 
+            # Residual connection
+            x = x_upd + x
+            
         x = self.dropout(x)
         x = self.dense(x)
         x = torch.tanh(x)

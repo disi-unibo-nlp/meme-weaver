@@ -52,11 +52,7 @@ class Rs_GCN_upd(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        # Add a residual connection from the original features.
-        out = transformed # + features
-
-        return out, R_norm.cpu()
-
+        return transformed, R_norm.cpu()
 
 
 class Rs_GCN(nn.Module):
@@ -106,10 +102,7 @@ class Rs_GCN(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        # Add a residual connection from the original features.
-        out = transformed + features
-
-        return out, R_norm.cpu()
+        return transformed, R_norm.cpu()
 
 
 class Sim_GCN(nn.Module):
@@ -157,10 +150,7 @@ class Sim_GCN(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        # Add a residual connection from the original features.
-        out = transformed + features
-
-        return out, R_norm.cpu()
+        return transformed, R_norm.cpu()
     
 
 gcn_map = {
