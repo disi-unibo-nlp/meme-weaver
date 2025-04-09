@@ -214,6 +214,14 @@ class ModelArguments:
             )
         },
     )
+    custom_gcn: str = field(
+        default="learn",
+        metadata={
+            "help": (
+                "The type of graph computation to use."
+            )
+        },
+    )
     save_affinity: bool = field(
         default=False,
         metadata={"help": "Do not use PEFT."},
@@ -319,6 +327,7 @@ def main():
 
     # Custom config hyperparameters
     config.num_gcn_layers = model_args.num_gcn_layers
+    config.custom_gcn = model_args.custom_gcn
     config.save_affinity = model_args.save_affinity
     config.output_dir = training_args.output_dir
 

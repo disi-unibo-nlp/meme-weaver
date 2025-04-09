@@ -53,6 +53,24 @@ def normalize_scores(scores):
         return np.zeros_like(scores)  # avoid division by zero
     return (scores - min_val) / (max_val - min_val)
 
+
+def compute_distribution(elements):
+    label_pair_counts = Counter(elements)
+    total_pairs = sum(label_pair_counts.values())
+
+    # Convert to percentage
+    label_pair_percentages = {
+        label: round((count / total_pairs) * 100, 2)
+        for label, count in label_pair_counts.items()
+    }
+
+    # Print nicely
+    print("\nLabel Pair Distribution (Percentages):")
+    for label, percent in label_pair_percentages.items():
+        print(f"{label}: {percent}%")
+    
+
+
 def main():
 
     dataset = load_dataset("paoloitaliani/mami", dataset_subset=None)
@@ -79,6 +97,7 @@ def main():
     # Custom config hyperparameters
     config.num_gcn_layers = 1
     config.save_affinity = False
+    config.custom_gcn = "learn"
     config.output_dir = output_path 
 
     device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
@@ -97,12 +116,20 @@ def main():
     # Append the checkpoint folder to the base path
     checkpoint_path = os.path.join(output_path, checkpoint_folder)
     model = get_model(checkpoint_path, model_kwargs)
+    import pdb; pdb.set_trace()
     # model = SentenceTransformer('all-MiniLM-L6-v2')
+
+    with open(os.path.join(output_path, "generated_predict_set.txt"), "r") as f:
+        all_preds_flat  = f.readlines()
+    
+    all_preds_flat = [int(pred.strip()) for pred in all_preds_flat]
     
     all_affinity_scores = []
     all_sim_scores = []
     all_label_pairs = []
+    all_outcome_pairs = []
     text_to_metadata = {}
+    pred_cursor = 0 
     # Loop through all affinity data
     for entry in tqdm(all_affinity_data):
         affinity_matrix = entry["R_norm"].numpy()
@@ -110,15 +137,17 @@ def main():
 
         # Decode input_ids to texts
         texts = [tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+        num_texts = len(texts)
+        preds = all_preds_flat[pred_cursor : pred_cursor + num_texts]
+        pred_cursor += num_texts
 
-        # Lookup metadata
-        for split in dataset:
-            for example in dataset[split]:
-                if example["text"] in texts:
-                    text_to_metadata[example["text"]] = {
-                        "file_name": example["file_name"],
-                        "label": example["label"]
-                    }       
+
+        for example in dataset["test"]:
+            if example["text"] in texts:
+                text_to_metadata[example["text"]] = {
+                    "file_name": example["file_name"],
+                    "label": example["label"]
+                }       
 
         # Get embeddings and cosine similarity matrix
         embeddings = get_cls_embeddings(texts, tokenizer, model, device)
@@ -145,14 +174,36 @@ def main():
                 elif (label_i, label_j) == (1, 0):
                     pair_label = "Mixed Pair"
                 all_label_pairs.append(pair_label)
+                
+                pred_i = preds[i]
+                pred_j = preds[j]
 
+                if pred_i == label_i:
+                    outcome_i = "correct"
+                if pred_i != label_i:
+                    outcome_i = "incorrect"
+                if pred_j == label_j:
+                    outcome_j = "correct"
+                if pred_j != label_j:
+                    outcome_j = "incorrect"
+                
+                if (outcome_i, outcome_j) == ("correct", "correct"):
+                    outcome_label = "Both Correct"
+                elif (outcome_i, outcome_j) == ("incorrect", "incorrect"):
+                    outcome_label = "Both Incorrect"
+                elif (outcome_i, outcome_j) == ("correct", "incorrect"):
+                    outcome_label = "Mixed Outcome"
+                elif (outcome_i, outcome_j) == ("incorrect", "correct"):
+                    outcome_label = "Mixed Outcome"
+                
+                all_outcome_pairs.append(outcome_label)
     
     # Convert to numpy arrays
     all_affinity_scores = normalize_scores(np.array(all_affinity_scores))
     all_sim_scores = normalize_scores(np.array(all_sim_scores))
     all_label_pairs = np.array(all_label_pairs)
+    all_outcome_pairs = np.array(all_outcome_pairs)
     
-
     # Get top k% threshold
     threshold = np.percentile(all_affinity_scores, args.percentile)
 
@@ -167,20 +218,10 @@ def main():
     aff_topk = all_affinity_scores[mask]
     sim_topk = all_sim_scores[mask]
     label_pairs_topk = all_label_pairs[mask]
+    outcome_pairs_topk = all_outcome_pairs[mask]
 
-    label_pair_counts = Counter(label_pairs_topk)
-    total_pairs = sum(label_pair_counts.values())
-
-    # Convert to percentage
-    label_pair_percentages = {
-        label: round((count / total_pairs) * 100, 2)
-        for label, count in label_pair_counts.items()
-    }
-
-    # Print nicely
-    print("\nLabel Pair Distribution (Percentages):")
-    for label, percent in label_pair_percentages.items():
-        print(f"{label}: {percent}%")
+    compute_distribution(label_pairs_topk)
+    compute_distribution(outcome_pairs_topk)
 
     pearson_corr, pearson_p = pearsonr(aff_topk, sim_topk)
     spearman_corr, spearman_p = spearmanr(aff_topk, sim_topk)
@@ -193,7 +234,8 @@ def main():
     df = pd.DataFrame({
         "Affinity Score": aff_topk,
         "Cosine Similarity": sim_topk,
-        "Label Pair": label_pairs_topk
+        "Label Pair": label_pairs_topk,
+        "Outcome Pair": outcome_pairs_topk,
     })
 
     # Create scatter plot

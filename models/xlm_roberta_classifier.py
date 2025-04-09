@@ -39,7 +39,7 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import (
 
 )
 
-from models.custom_modules import Rs_GCN
+from models.custom_modules import gcn_map
 
 
 logger = logging.get_logger(__name__)
@@ -59,9 +59,10 @@ class XLMRobertaClassificationHead(nn.Module):
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
+        custom_gcn = gcn_map[config.custom_gcn]
 
         self.rs_gcn_layers = nn.ModuleList(
-            [Rs_GCN(config) for _ in range(config.num_gcn_layers)]
+            [custom_gcn(config) for _ in range(config.num_gcn_layers)]
         )
 
     def forward(self, features, **kwargs):

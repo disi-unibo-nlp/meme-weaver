@@ -5,16 +5,15 @@ from torch import nn
 import torch.nn.functional as F
 
 
-
 class Rs_GCN_upd(nn.Module):
     def __init__(self, config):
         """
-        Initialize the Rs_GCN module.
+        Initialize the Rs_GCN_upd module.
 
         Args:
             hidden_size (int): Dimensionality of the input features.
         """
-        super(Rs_GCN, self).__init__()
+        super(Rs_GCN_upd, self).__init__()
         # Fully connected layer to compute φ(·) for transforming input embeddings.
         self.phi = nn.Linear(config.hidden_size, config.hidden_size)
         # Fully connected layer to compute γ(·) for transforming input embeddings.
@@ -28,7 +27,7 @@ class Rs_GCN_upd(nn.Module):
 
     def forward(self, features):
         """
-        Forward pass for the Rs_GCN layer.
+        Forward pass for the Rs_GCN_upd layer.
 
         Args:
             embeddings (torch.Tensor): Input tensor of shape (batch_size, hidden_size)
@@ -59,9 +58,9 @@ class Rs_GCN_upd(nn.Module):
         out = transformed + features
 
         # Apply layer normalization.
-        # out = self.layer_norm(out)
+        out = self.layer_norm(out)
 
-        return out
+        return out, R_norm.cpu()
 
 
 
@@ -82,8 +81,6 @@ class Rs_GCN(nn.Module):
         self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
         # Residual weights linear layer applied on the aggregated features.
         self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
-
-        # self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, features):
         """
@@ -117,9 +114,62 @@ class Rs_GCN(nn.Module):
         # Add a residual connection from the original features.
         out = transformed + features
 
-        # Apply layer normalization.
-        # out = self.layer_norm(out)
-
         return out, R_norm.cpu()
 
 
+class Sim_GCN(nn.Module):
+    def __init__(self, config):
+        """
+        Initialize the Sim_GCN module.
+
+        Args:
+            hidden_size (int): Dimensionality of the input features.
+        """
+        super(Sim_GCN, self).__init__()
+
+        # Linear transformation applied to the node features after aggregation.
+        self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
+        # Residual weights linear layer applied on the aggregated features.
+        self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
+
+        # self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+
+    def forward(self, features):
+        """
+        Forward pass for the Sim_GCN layer.
+
+        Args:
+            features (torch.Tensor): Input tensor of shape (batch_size, hidden_size)
+                                       Each row represents a node's feature.
+        Returns:
+            torch.Tensor: Updated node features of shape (batch_size, hidden_size)
+        """
+
+
+        # Compute the affinity matrix using cosine similarity.
+        # The (i,j)-th entry is the cosine similarity between features[i] and features[j].
+        R = torch.matmul(features, features.t())  
+
+        # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
+        R_norm = R / R.size(-1)
+
+        # Apply a linear transformation on the original features.
+        features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
+
+        # Aggregate neighboring features using the normalized affinity matrix.
+        RV = torch.matmul(R_norm, features_v)  # Shape: (batch_size, hidden_size)
+
+        # Apply a second linear transformation on the aggregated features.
+        transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
+
+        # Add a residual connection from the original features.
+        out = transformed + features
+
+        return out, R_norm.cpu()
+    
+
+gcn_map = {
+            "learn": Rs_GCN,
+            "sim": Sim_GCN,
+            "learn_upd": Rs_GCN_upd
+        }
