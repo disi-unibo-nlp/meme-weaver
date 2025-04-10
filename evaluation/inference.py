@@ -5,202 +5,20 @@ import os
 import json
 import torch
 import wandb
-import numpy as np
-
 from datasets import load_dataset
 
 from transformers import (
     AutoConfig,
     AutoTokenizer,
-    EvalPrediction,
     DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
     HfArgumentParser,
 )
 
-from typing import Optional
-import torch.nn.functional as F
-from scipy.special import softmax
-from dataclasses import dataclass, field
-from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score, roc_auc_score, roc_curve, auc
+from src.utils import get_model, compute_metrics
+from src.arguments import ModelArguments, DataTrainingArguments
 
-from src.utils import get_model
-
-
-@dataclass
-class DataTrainingArguments:
-    """
-    Arguments pertaining to what data we are going to input our model for training and eval.
-    """
-
-    lang: Optional[str] = field(default=None, metadata={"help": "Language id for tasks."})
-    dataset_name: Optional[str] = field(
-        default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
-    )
-    dataset_name_local: Optional[str] = field(
-        default=None, metadata={"help": "The name of the local dataset to use."}
-    )
-    input_column: Optional[str] = field(
-        default="input",
-        metadata={"help": "The name of the column in the datasets containing the full texts (for summarization)."},
-    )
-    target_column: Optional[str] = field(
-        default="output",
-        metadata={"help": "The name of the column in the datasets containing the summaries (for summarization)."},
-    )
-    overwrite_cache: bool = field(
-        default=False, metadata={"help": "Overwrite the cached preprocessed datasets or not."}
-    )
-    preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
-    )
-    pad_to_max_length: bool = field(
-        default=True,
-        metadata={
-            "help": (
-                "Whether to pad all samples to `max_seq_length`. "
-                "If False, will pad the samples dynamically when batching to the maximum length in the batch."
-            )
-        },
-    )
-    source_prefix: Optional[str] = field(
-        default="", metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
-    )
-    max_train_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of training examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_eval_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_predict_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of prediction examples to this "
-                "value if set."
-            )
-        },
-    )
-    train_file: Optional[str] = field(
-        default=None, metadata={"help": "A csv or a json file containing the training data."}
-    )
-    validation_file: Optional[str] = field(
-        default=None, metadata={"help": "A csv or a json file containing the validation data."}
-    )
-    test_file: Optional[str] = field(default=None, metadata={"help": "A csv or a json file containing the test data."})
-    max_seq_length: Optional[int] = field(
-        default=1024,
-        metadata={
-            "help": (
-                "The maximum total input sequence length after tokenization. Sequences longer "
-                "than this will be truncated, sequences shorter will be padded."
-            )
-        },
-    )
-
-    logging : Optional[str] = field(
-        default="disabled",
-        metadata={
-            "help": (
-                "Set 'disabled' to disable wandb logging, or else select logging 'online' or 'offline'"
-            )
-        },
-    )
-    dataset_subset: Optional[str] = field(
-        default=None, metadata={"help": "The subset of the dataset to use."}
-    )   
-    add_caption: bool = field(
-        default=False,
-        metadata={"help": "Add references to the input."},
-    )
-    split: Optional[str] = field(
-        default=None, metadata={"help": "The split of the dataset to use (train, test, validation)."}
-    ) 
-
-
-@dataclass
-class ModelArguments:
-    """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
-    """
-
-    model_name_or_path: str = field(
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
-    )
-    config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
-    )
-    tokenizer_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
-    )
-    cache_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
-    )
-    use_fast_tokenizer: bool = field(
-        default=True,
-        metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
-    )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
-    )
-    use_auth_token: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "Will use the token generated when running `huggingface-cli login` (necessary to use this script "
-                "with private models)."
-            )
-        },
-    )
-    ignore_mismatched_sizes: bool = field(
-        default=False,
-        metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
-    )
-    resize_position_embeddings: Optional[bool] = field(
-        default=None,
-        metadata={
-            "help": (
-                "Whether to automatically resize the position embeddings if `max_source_length` exceeds "
-                "the model's position embeddings."
-            )
-        },
-    )
-    no_peft: bool = field(
-        default=False,
-        metadata={"help": "Do not use PEFT."},
-    )
-    num_gcn_layers: Optional[int] = field(
-        default=0,
-        metadata={"help": "The number of Rs_GCN layers to use."},
-    )
-    save_affinity: bool = field(
-        default=False,
-        metadata={"help": "Do not use PEFT."},
-    )
-    custom_gcn: str = field(
-        default="learn",
-        metadata={
-            "help": (
-                "The type of graph computation to use."
-            )
-        },
-    )
 
 def main():
 
@@ -222,28 +40,8 @@ def main():
         if label_to_id is not None and data_args.target_column in examples:
             result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples[data_args.target_column]]
         return result
-
-    def compute_metrics(p: EvalPrediction):
-        
-
-        logits = p.predictions  
-        labels = p.label_ids
-
-        preds = np.argmax(logits, axis=1)
-        probs = softmax(logits, axis=1)[:, 1]
-
-        result = {
-            "precision_macro": round(100 * precision_score(labels, preds, average='macro'), 2),
-            "recall_macro": round(100 * recall_score(labels, preds, average='macro'), 2),
-            "F1_macro": round(100 * f1_score(labels, preds, average='macro'), 2),
-            "accuracy": round(100 * accuracy_score(labels, preds), 2),
-            "roc_auc": round(100 * roc_auc_score(labels, probs), 2),
-        }
-        
-        return result
     
     wandb.init(mode="disabled")
-
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()

@@ -4,15 +4,18 @@ sys.path.append('./')
 import os
 import math
 import torch
+import numpy as np
+from scipy.special import softmax
 from codecarbon import EmissionsTracker
 from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
-    accuracy_score
+    accuracy_score,
+    roc_auc_score,
 )
 
-from transformers import AutoModelForSequenceClassification
+from transformers import AutoModelForSequenceClassification,EvalPrediction
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 from models.modernbert_classifier import ModernBertForSequenceClassification
 from models.llama_classifier import LlamaForSequenceClassification
@@ -93,13 +96,6 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     
     return metrics
 
-
-model_constructors = {
-    "xlm-roberta": XLMRobertaForSequenceClassification,
-    "ModernBERT": ModernBertForSequenceClassification,
-    "Meta-Llama": LlamaForSequenceClassification,
-}
-
 def get_model(model_name, model_kwargs):
     if any(substring in model_name for substring in model_constructors):
         for substring, model_constructor in model_constructors.items():
@@ -110,3 +106,29 @@ def get_model(model_name, model_kwargs):
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **model_kwargs)
     
     return model
+
+def compute_metrics(p: EvalPrediction):
+        
+    logits = p.predictions  
+    labels = p.label_ids
+
+    preds = np.argmax(logits, axis=1)
+    probs = softmax(logits, axis=1)[:, 1]
+
+    result = {
+        "precision_macro": round(100 * precision_score(labels, preds, average='macro'), 2),
+        "recall_macro": round(100 * recall_score(labels, preds, average='macro'), 2),
+        "F1_macro": round(100 * f1_score(labels, preds, average='macro'), 2),
+        "accuracy": round(100 * accuracy_score(labels, preds), 2),
+        "roc_auc": round(100 * roc_auc_score(labels, probs), 2),
+    }
+    
+    return result
+
+
+model_constructors = {
+    "xlm-roberta": XLMRobertaForSequenceClassification,
+    "ModernBERT": ModernBertForSequenceClassification,
+    "Meta-Llama": LlamaForSequenceClassification,
+}
+
