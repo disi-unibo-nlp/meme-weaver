@@ -1,12 +1,16 @@
 import sys
 sys.path.append('./')
 
+import torch
+# Set PyTorch to use deterministic algorithms for CUDA operations
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 import logging
 import os
 import sys
 import json
 import math
-import torch
 import wandb
 
 import datasets
@@ -28,12 +32,11 @@ from transformers import (
     MBartTokenizer,
     MBartTokenizerFast,
     get_scheduler,
-    Trainer
+    Trainer,
 )
 
 from arguments import ModelArguments, DataTrainingArguments
 from utils import predict_class, get_model, compute_metrics
-# from src.trainer_hf_new import Trainer
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 from peft import get_peft_model, prepare_model_for_kbit_training
@@ -96,8 +99,8 @@ def main():
     logger.info(f"Training/evaluation parameters {training_args}")
 
     training_args.output_dir += "/" + training_args.run_name
-    # assert not os.path.exists(training_args.output_dir), "Output directory already exists"
 
+    assert not os.path.exists(training_args.output_dir), "Output directory already exists"
     
     wandb.init(mode=data_args.logging,
             name=training_args.run_name,
@@ -106,6 +109,16 @@ def main():
 
     # Detecting last checkpoint.
     last_checkpoint = None
+    
+    import numpy
+    import random
+    numpy.random.seed(seed=training_args.seed)
+    random.seed(training_args.seed)
+    torch.manual_seed(training_args.seed)
+    torch.cuda.manual_seed(training_args.seed)
+    torch.cuda.manual_seed_all(training_args.seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
@@ -155,6 +168,7 @@ def main():
             device_map=device_map,
             quantization_config= None if model_args.no_peft else quantization_config,
             config=config,
+            use_flash_attention_2=False,
             cache_dir="../llms",
         )
     
@@ -182,7 +196,7 @@ def main():
         # Append the checkpoint folder to the base path
         checkpoint_path = os.path.join(training_args.output_dir, checkpoint_folder)
         model = get_model(checkpoint_path, model_kwargs)
-    
+        
     if model.config.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = tokenizer.pad_token_id
@@ -392,10 +406,14 @@ def main():
     training_args.eval_steps = n_steps // 8
     training_args.save_steps = n_steps // 8
 
-    # TODO: check if Seq2SeqTrainer is needed since we use seq-to-seq models like MBart
+    from transformers import AutoModelForSequenceClassification
+    def model_init():
+        return AutoModelForSequenceClassification.from_pretrained(model_args.model_name_or_path, **model_kwargs)
+
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
+        # model_init=model_init,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,

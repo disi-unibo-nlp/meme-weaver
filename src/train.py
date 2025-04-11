@@ -11,7 +11,16 @@ from tqdm import tqdm
 from colorama import Fore
 from preprocessing.dataset import get_dataloader
 from utils import get_optimizer_and_scheduler, evaluate_model
+
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    set_seed,
+)
+
 from memes_graph_enhanced.models.simple_classifier import SimpleClassifier
+from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 
 
 def train(config):
@@ -64,15 +73,54 @@ def evaluate(args, config, eval_loader, test_for_submission=False):
 
 def main(config):
 
-    # -- setting seed
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)
+    import numpy
+    import random
+    numpy.random.seed(seed=42)
+    random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+    # Set seed before initializing model.
+    set_seed(42)
+
+    label_list = list(set(raw_datasets["train"][data_args.target_column]))
+    num_labels = len(label_list)
+
+    config = AutoConfig.from_pretrained(
+        "FacebookAI/xlm-roberta-large",
+        num_labels=num_labels,
+        cache_dir="../llms",
+        trust_remote_code=True,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/xlm-roberta-large")
+    device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
+
+    # Custom config hyperparameters
+    config.num_gcn_layers = 0
+    config.custom_gcn = "None"
+    config.save_affinity = False
+    config.apply_ffw = False
+    config.output_dir = None
+
+    model_kwargs = dict(
+            torch_dtype="auto",
+            # use_cache=False, # set to False as we're going to use gradient checkpointing
+            device_map=device_map,
+            quantization_config= None,
+            config=config,
+            use_flash_attention_2=False,
+            cache_dir="../llms",
+        )
+    
 
     # -- building model architecture
     global model, optimizer, scheduler, train_loader, val_loader, test_loader
-    model = SimpleClassifier(config).to(config.device)
+    # model = SimpleClassifier(config).to(config.device)
+    model = XLMRobertaForSequenceClassification("FacebookAI/xlm-roberta-large", **model_kwargs)
 
     # -- training process
     if args.mode == "train":

@@ -81,15 +81,15 @@ class XLMRobertaClassificationHead(nn.Module):
         R_norm = None
         for gcn in self.rs_gcn_layers:
             # x = self.dropout(x)
-            x_upd, R_norm = gcn(x)
+            x, R_norm = gcn(x)
 
             if self.apply_ffw:
-                x = apply_chunking_to_forward(
-                    self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, x_upd
+                x_fw = apply_chunking_to_forward(
+                    self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, x
                 )
 
-            # Residual connection
-            x = x_upd + x
+                # Residual connection
+                x = x_fw + x
             
         x = self.dropout(x)
         x = self.dense(x)

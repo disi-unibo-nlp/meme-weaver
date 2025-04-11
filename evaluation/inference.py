@@ -90,6 +90,7 @@ def main():
     config.custom_gcn = config_json["custom_gcn"]
     config.save_affinity = config_json["save_affinity"]
     config.output_dir = config_json["output_dir"]
+    config.apply_ffw = config_json["apply_ffw"]
 
     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
 
@@ -108,7 +109,7 @@ def main():
     model.config.label2id = label_to_id
     model.config.id2label = {id: label for label, id in config.label2id.items()}
 
-    for batch_size in range(1, 406):
+    for batch_size in range(1, 200):
 
         training_args.per_device_eval_batch_size = batch_size
         trainer = Trainer(

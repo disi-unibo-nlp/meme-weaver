@@ -17,7 +17,7 @@ from sklearn.metrics import (
 
 from transformers import AutoModelForSequenceClassification,EvalPrediction
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
-from models.modernbert_classifier import ModernBertForSequenceClassification
+# from models.modernbert_classifier import ModernBertForSequenceClassification
 from models.llama_classifier import LlamaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
@@ -128,7 +128,7 @@ def compute_metrics(p: EvalPrediction):
 
 model_constructors = {
     "xlm-roberta": XLMRobertaForSequenceClassification,
-    "ModernBERT": ModernBertForSequenceClassification,
+    "ModernBERT": None,
     "Meta-Llama": LlamaForSequenceClassification,
 }
 
