@@ -81,15 +81,15 @@ class XLMRobertaClassificationHead(nn.Module):
         R_norm = None
         for gcn in self.rs_gcn_layers:
             # x = self.dropout(x)
-            x_upd, R_norm = gcn(x)
+            x, R_norm = gcn(x)
 
             if self.apply_ffw:
-                x = apply_chunking_to_forward(
-                    self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, x_upd
+                x_fw = apply_chunking_to_forward(
+                    self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, x
                 )
 
-            # Residual connection
-            x = x_upd + x
+                # Residual connection
+                x = x_fw + x
             
         x = self.dropout(x)
         x = self.dense(x)
@@ -119,6 +119,7 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
         self.config = config
         self.save_affinity = config.save_affinity
         self.output_dir = config.output_dir 
+        self.batch_size = config.batch_size
 
         self.roberta = XLMRobertaModel(config, add_pooling_layer=False)
         self.classifier = XLMRobertaClassificationHead(config)
@@ -170,7 +171,7 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
         logits, R_norm = self.classifier(sequence_output)
 
         if self.save_affinity:
-            output_path = os.path.join(self.output_dir, "affinity_matrices")
+            output_path = os.path.join(self.output_dir, f"affinity_matrices_{self.batch_size}_bs")
             os.makedirs(output_path, exist_ok=True)
             
             proc_files = len(os.listdir(output_path))

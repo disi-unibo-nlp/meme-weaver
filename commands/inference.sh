@@ -1,16 +1,15 @@
 
 ################## INFERENCE ON MAMI DATASET ############
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=1 python3 evaluation/inference.py \
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python3 evaluation/inference.py \
 --split test \
---run_name xlm-roberta-large_batch140_10eps_1gcn \
+--run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45 \
 --model_name_or_path FacebookAI/xlm-roberta-large \
 --output_dir output_mami \
 --dataset_name paoloitaliani/mami \
 --input_column text \
 --target_column label \
---num_gcn_layers 1 
-#--save_affinity 
-
+--save_affinity \
+--per_device_eval_batch_size 100
 
 ############ INFERENCE ON MEMES_EXIST 2024 DATASET ############
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=0 python3 evaluation/inference.py \

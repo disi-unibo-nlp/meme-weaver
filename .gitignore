@@ -5,6 +5,7 @@ output*/
 wandb/
 data/embeddings
 playground.py
+rename_param.py
 HyperHatePrompt.ipynb - Colab.pdf
 
 # Byte-compiled / optimized / DLL files

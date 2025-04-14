@@ -17,7 +17,7 @@ class Rs_GCN_upd(nn.Module):
         # Fully connected layer to compute φ(·) for transforming input embeddings.
         self.phi = nn.Linear(config.hidden_size, config.hidden_size)
         # Fully connected layer to compute γ(·) for transforming input embeddings.
-        self.gamma = nn.Linear(config.hidden_size, config.hidden_size)
+        self.psi = nn.Linear(config.hidden_size, config.hidden_size)
         # Linear transformation applied to the node features after aggregation.
         self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
         # Residual weights linear layer applied on the aggregated features.
@@ -35,13 +35,16 @@ class Rs_GCN_upd(nn.Module):
         """
         # Transform input features using φ and γ functions.
         phi_out = self.phi(features)  # Shape: (batch_size, hidden_size)
-        gamma_out = self.gamma(features)  # Shape: (batch_size, hidden_size)
+        psi_out = self.psi(features)  # Shape: (batch_size, hidden_size)
 
         # Compute the affinity matrix R as the dot product between transformed features.
-        R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
+        R = torch.matmul(phi_out, psi_out.t())  # Shape: (batch_size, batch_size)
 
         # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
-        R_norm = F.softmax(R, dim=-1)
+        R_norm = R / R.size(-1)
+        
+        # Apply softmax to the affinity matrix to ensure it sums to 1 across the last dimension.
+        R_norm = F.softmax(R_norm, dim=-1)
 
         # Apply a linear transformation on the original features.
         features_v = self.W_g(features)  # Shape: (batch_size, hidden_size)
@@ -52,7 +55,9 @@ class Rs_GCN_upd(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        return transformed, R_norm.cpu()
+        out = transformed + features
+ 
+        return out, R_norm.cpu()
 
 
 class Rs_GCN(nn.Module):
@@ -67,7 +72,7 @@ class Rs_GCN(nn.Module):
         # Fully connected layer to compute φ(·) for transforming input embeddings.
         self.phi = nn.Linear(config.hidden_size, config.hidden_size)
         # Fully connected layer to compute γ(·) for transforming input embeddings.
-        self.gamma = nn.Linear(config.hidden_size, config.hidden_size)
+        self.psi_param = nn.Linear(config.hidden_size, config.hidden_size)
         # Linear transformation applied to the node features after aggregation.
         self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
         # Residual weights linear layer applied on the aggregated features.
@@ -85,10 +90,10 @@ class Rs_GCN(nn.Module):
         """
         # Transform input features using φ and γ functions.
         phi_out = self.phi(features)  # Shape: (batch_size, hidden_size)
-        gamma_out = self.gamma(features)  # Shape: (batch_size, hidden_size)
+        psi_out = self.psi_param(features)  # Shape: (batch_size, hidden_size)
 
         # Compute the affinity matrix R as the dot product between transformed features.
-        R = torch.matmul(phi_out, gamma_out.t())  # Shape: (batch_size, batch_size)
+        R = torch.matmul(phi_out, psi_out.t())  # Shape: (batch_size, batch_size)
 
         # Normalize the affinity matrix by dividing by the number of nodes (i.e., last dimension size).
         R_norm = R / R.size(-1)
@@ -102,7 +107,9 @@ class Rs_GCN(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        return transformed, R_norm.cpu()
+        out = transformed + features
+ 
+        return out, R_norm.cpu()
 
 
 class Sim_GCN(nn.Module):
@@ -150,7 +157,9 @@ class Sim_GCN(nn.Module):
         # Apply a second linear transformation on the aggregated features.
         transformed = self.W_r(RV)  # Shape: (batch_size, hidden_size)
 
-        return transformed, R_norm.cpu()
+        out = transformed + features
+ 
+        return out, R_norm.cpu()
     
 
 gcn_map = {
