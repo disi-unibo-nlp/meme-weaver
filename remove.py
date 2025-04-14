@@ -2,12 +2,16 @@ import os
 import shutil
 import argparse
 
-FOLDERS_TO_KEEP = ["xlm-roberta-large_texten_qwen25vl_caption_128batch_10eps_mami128_1gcn",
-                   "xlm-roberta-large_texten_batch128_10eps_1gcn",
-                   "xlm-roberta-large_batch140_10eps_1gcn",
+FOLDERS_TO_KEEP = ["xlm-roberta-large_batch140_10eps_1gcn",
                    "xlm-roberta-large_batch140_10eps_1gcn_test4",
                    "xlm-roberta-large_batch140_10eps_1gcn_ffw_test2",
-                   "xlm-roberta-large_batch140_10eps_test_4"
+                   "xlm-roberta-large_batch140_10eps_test_4",
+                   "xlm-roberta-large_batch100_10eps_reprod",
+                   "xlm-roberta-large_batch100_10eps_reprod_1gcn",
+                   "xlm-roberta-large_batch40_10eps_reprod_1gcn",
+                   "xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45",
+                   "xlm-roberta-large_batch100_10eps_reprod_1gcn_6e-6lr",
+                   "xlm-roberta-large_batch100_10eps_reprod_seed45"
                    ]
 
 def get_folders_in_path(directory):

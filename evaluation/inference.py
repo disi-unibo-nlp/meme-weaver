@@ -88,9 +88,10 @@ def main():
         
     config.num_gcn_layers = config_json["num_gcn_layers"]
     config.custom_gcn = config_json["custom_gcn"]
-    config.save_affinity = config_json["save_affinity"]
     config.output_dir = config_json["output_dir"]
     config.apply_ffw = config_json["apply_ffw"]
+    config.save_affinity = model_args.save_affinity
+    config.batch_size = training_args.per_device_eval_batch_size
 
     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
 
@@ -105,11 +106,12 @@ def main():
             config=config,
             cache_dir="../llms",
         )
+
     model = get_model(checkpoint_path, model_kwargs)
     model.config.label2id = label_to_id
     model.config.id2label = {id: label for label, id in config.label2id.items()}
 
-    for batch_size in range(1, 200):
+    for batch_size in [training_args.per_device_eval_batch_size]: # range(1, 200):
 
         training_args.per_device_eval_batch_size = batch_size
         trainer = Trainer(

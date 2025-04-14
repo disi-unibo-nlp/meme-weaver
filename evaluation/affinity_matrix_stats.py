@@ -75,10 +75,10 @@ def main():
 
     dataset = load_dataset("paoloitaliani/mami", dataset_subset=None)
 
-    affinity_files = os.listdir(os.path.join(args.output_dir, args.run_name, "affinity_matrices"))
+    affinity_files = os.listdir(os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs"))
     all_affinity_data = []
     for affinity_file in affinity_files:
-        affinity_path = os.path.join(args.output_dir, args.run_name, "affinity_matrices", affinity_file)
+        affinity_path = os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs", affinity_file)
         with open(affinity_path, "rb") as f:
             all_affinity_data.append(pickle.load(f))
 
@@ -99,6 +99,8 @@ def main():
     config.save_affinity = False
     config.custom_gcn = "learn"
     config.output_dir = output_path 
+    config.batch_size = args.batch_size
+    config.apply_ffw = False
 
     device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
 
@@ -116,13 +118,16 @@ def main():
     # Append the checkpoint folder to the base path
     checkpoint_path = os.path.join(output_path, checkpoint_folder)
     model = get_model(checkpoint_path, model_kwargs)
-    import pdb; pdb.set_trace()
+    model.eval()
     # model = SentenceTransformer('all-MiniLM-L6-v2')
 
     with open(os.path.join(output_path, "generated_predict_set.txt"), "r") as f:
-        all_preds_flat  = f.readlines()
+        all_logits  = f.readlines()
     
-    all_preds_flat = [int(pred.strip()) for pred in all_preds_flat]
+    logits_floats = [np.fromstring(logit.strip('[]\n'), sep=' ').tolist() for logit in all_logits]
+    
+    
+    all_preds_flat = np.argmax(logits_floats, axis=1)
     
     all_affinity_scores = []
     all_sim_scores = []
@@ -250,7 +255,7 @@ def main():
         trendline="ols"  # Adds a linear regression line
     )
     fig.update_traces(marker=dict(size=4))
-    folder_path = os.path.join(args.output_dir, args.run_name, f"affinity_matrix_corr_{args.fig_type}.pdf")
+    folder_path = os.path.join(args.output_dir, args.run_name, f"affinity_matrix_corr_{args.fig_type}_{args.batch_size}_bs.pdf")
     fig.write_image(folder_path)
 
 
@@ -263,6 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name_or_path", default="FacebookAI/xlm-roberta-large")
     parser.add_argument("--fig_type", help="top or bottom")
     parser.add_argument("--percentile", type=int, help="Percentile for top/bottom k%")
+    parser.add_argument("--batch_size", type=int, help="Batch size for evaluation")
 
     args = parser.parse_args()
     main()

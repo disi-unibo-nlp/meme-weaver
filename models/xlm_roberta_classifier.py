@@ -119,6 +119,7 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
         self.config = config
         self.save_affinity = config.save_affinity
         self.output_dir = config.output_dir 
+        self.batch_size = config.batch_size
 
         self.roberta = XLMRobertaModel(config, add_pooling_layer=False)
         self.classifier = XLMRobertaClassificationHead(config)
@@ -170,7 +171,7 @@ class XLMRobertaForSequenceClassification(XLMRobertaPreTrainedModel):
         logits, R_norm = self.classifier(sequence_output)
 
         if self.save_affinity:
-            output_path = os.path.join(self.output_dir, "affinity_matrices")
+            output_path = os.path.join(self.output_dir, f"affinity_matrices_{self.batch_size}_bs")
             os.makedirs(output_path, exist_ok=True)
             
             proc_files = len(os.listdir(output_path))
