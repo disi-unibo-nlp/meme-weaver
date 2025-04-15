@@ -72,7 +72,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python3 src
 --num_gcn_layers 1 \
 --seed 45 \
 --no_peft \
---run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45 \
+--run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45_test \
 --input_column text \
 --target_column label \
 --logging online \

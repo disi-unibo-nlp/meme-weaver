@@ -1,15 +1,11 @@
 import sys
 sys.path.append('./')
 
-import torch
-# Set PyTorch to use deterministic algorithms for CUDA operations
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
 import logging
 import os
 import sys
 import json
+import torch
 import math
 import wandb
 
@@ -127,7 +123,7 @@ def main():
         data_args.dataset_name,
         data_args.dataset_subset,
         # download_mode="force_redownload",
-        cache_dir=model_args.cache_dir,
+        cache_dir="../datasets",
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
@@ -161,6 +157,7 @@ def main():
     config.save_affinity = model_args.save_affinity
     config.apply_ffw = model_args.apply_ffw
     config.output_dir = training_args.output_dir
+    config.batch_size = training_args.per_device_eval_batch_size
 
     model_kwargs = dict(
             torch_dtype="auto",
@@ -435,7 +432,6 @@ def main():
         train_tracker.start()
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         train_emissions = train_tracker.stop()
-        trainer.save_model()  # Saves the tokenizer too for easy upload
 
         metrics = train_result.metrics
         max_train_samples = (
