@@ -1,5 +1,6 @@
 .idea/
 exist2024_memes_dataset/
+MAMI_Dataset/
 output*/
 wandb/
 data/embeddings
