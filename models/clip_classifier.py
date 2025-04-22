@@ -9,11 +9,12 @@ from transformers.utils import (
     add_start_docstrings,
     ModelOutput,
 )
-                                
+
+from transformers.activations import ACT2FN                            
 
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
-from transformrs.models.clip.configuration_clip import CLIPConfig
+from transformers.models.clip.configuration_clip import CLIPConfig
 
 from transformers.models.clip.modeling_clip import (
     CLIP_START_DOCSTRING,
@@ -25,7 +26,10 @@ from transformers.models.clip.modeling_clip import (
     CLIPTextConfig,
     CLIPVisionConfig,
     CLIPPreTrainedModel,
+    CLIPMLP
 )
+
+from models.custom_modules import gcn_map
 
 
 @dataclass
@@ -62,6 +66,55 @@ class CLIPOutput(ModelOutput):
             self[k] if k not in ["text_model_output", "vision_model_output"] else getattr(self, k).to_tuple()
             for k in self.keys()
         )
+    
+
+# Copied from transformers.models.roberta.modeling_roberta.RobertaClassificationHead with Roberta->XLMRoberta
+class ClipClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.projection_dim, config.projection_dim)
+        classifier_dropout = config.attention_dropout
+        import pdb; pdb.set_trace()
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.out_proj = nn.Linear(config.projection_dim, config.num_labels)
+
+        custom_gcn = gcn_map[config.custom_gcn]
+        self.rs_gcn_layers = nn.ModuleList(
+            [custom_gcn(config) for _ in range(config.num_gcn_layers)]
+        )
+
+        self.apply_ffw = config.apply_ffw
+
+        if self.apply_ffw:
+            self.mlp = CLIPMLP(config)
+
+    def forward(self, features, **kwargs):
+        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])  
+
+        R_norm = None
+        for gcn in self.rs_gcn_layers:
+            # x = self.dropout(x)
+            x, _ = gcn(x)
+
+            if self.apply_ffw:
+                x_fw = self.mlp(x)
+                # Residual connection
+                x = x_fw + x
+
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
+
+    def feed_forward_chunk(self, x):
+        intermediate_output = self.intermediate(x)
+        layer_output = self.output(intermediate_output, x)
+        return layer_output
+
 
 
 
@@ -103,10 +156,12 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.logit_scale = nn.Parameter(torch.tensor(self.config.logit_scale_init_value))
 
         self.classifier = nn.Linear(self.projection_dim * 2, config.num_labels)
+
         self.loss_fct = nn.CrossEntropyLoss()
 
         # Initialize weights and apply final processing
         self.post_init()
+
 
     @add_start_docstrings_to_model_forward(CLIP_TEXT_INPUTS_DOCSTRING)
     def get_text_features(

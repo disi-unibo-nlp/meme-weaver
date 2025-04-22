@@ -80,6 +80,7 @@ def main():
         size = image_processor.size["shortest_edge"]
         crop_size = (size, size)
         max_size = image_processor.size.get("longest_edge")
+    
 
     train_transforms = Compose(
             [
@@ -121,13 +122,11 @@ def main():
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False)
     
-    
     eval_dataset = eval_dataset.map(
             preprocess_val,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False)
-    
     predict_dataset = predict_dataset.map(  
             preprocess_val,
             batched=True,

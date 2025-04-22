@@ -61,8 +61,8 @@ class XLMRobertaClassificationHead(nn.Module):
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
+        
         custom_gcn = gcn_map[config.custom_gcn]
-
         self.rs_gcn_layers = nn.ModuleList(
             [custom_gcn(config) for _ in range(config.num_gcn_layers)]
         )

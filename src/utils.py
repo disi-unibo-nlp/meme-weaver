@@ -108,8 +108,7 @@ def get_model(model_name, model_kwargs):
     return model
 
 def compute_metrics(p: EvalPrediction):
-        
-    logits = p.predictions  
+    logits = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
     labels = p.label_ids
 
     preds = np.argmax(logits, axis=1)

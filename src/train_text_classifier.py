@@ -5,6 +5,8 @@ import logging
 import os
 import sys
 import json
+import numpy
+import random
 import torch
 import math
 import wandb
@@ -69,6 +71,7 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
+    
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -106,8 +109,6 @@ def main():
     # Detecting last checkpoint.
     last_checkpoint = None
     
-    import numpy
-    import random
     numpy.random.seed(seed=training_args.seed)
     random.seed(training_args.seed)
     torch.manual_seed(training_args.seed)
@@ -193,7 +194,7 @@ def main():
         # Append the checkpoint folder to the base path
         checkpoint_path = os.path.join(training_args.output_dir, checkpoint_folder)
         model = get_model(checkpoint_path, model_kwargs)
-        
+            
     if model.config.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = tokenizer.pad_token_id
@@ -296,11 +297,10 @@ def main():
 
     def preprocess_function(examples):
         # remove pairs where at least one record is None
-        inputs1, targets = [], []
+        inputs1 = []
         inputs2 = None
-        for i in range(len(examples[data_args.input_column])):
-            inputs1.append(examples[data_args.input_column][i])
-            targets.append(examples[data_args.target_column][i])
+        for i in range(len(examples[data_args.text_column])):
+            inputs1.append(examples[data_args.text_column][i])
         
         if data_args.add_caption: 
             inputs1 = [inp + "[CPT]" + cpt  for inp, cpt in zip(inputs1, examples["qwen25vl_caption"])]

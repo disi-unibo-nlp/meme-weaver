@@ -6,7 +6,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python3 eva
 --model_name_or_path FacebookAI/xlm-roberta-large \
 --output_dir output_mami \
 --dataset_name paoloitaliani/mami \
---input_column text \
+--text_column text \
 --target_column label \
 --save_affinity \
 --per_device_eval_batch_size 100
@@ -21,5 +21,5 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python3 eva
 # --output_dir output_hard_label_task4 \
 # --dataset_name paoloitaliani/memes_exist2024 \
 # --dataset_subset default \
-# --input_column text_en \
+# --text_column text_en \
 # --target_column hard_label_task4 

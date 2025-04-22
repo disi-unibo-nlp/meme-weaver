@@ -15,13 +15,17 @@ class DataTrainingArguments:
     dataset_name_local: Optional[str] = field(
         default=None, metadata={"help": "The name of the local dataset to use."}
     )
-    input_column: Optional[str] = field(
+    text_column: Optional[str] = field(
         default="input",
-        metadata={"help": "The name of the column in the datasets containing the full texts (for summarization)."},
+        metadata={"help": "The name of the column in the datasets containing the texts"},
+    )
+    image_column: Optional[str] = field(
+        default="image",
+        metadata={"help": "The name of the column in the datasets containing the images"},
     )
     target_column: Optional[str] = field(
         default="output",
-        metadata={"help": "The name of the column in the datasets containing the summaries (for summarization)."},
+        metadata={"help": "The name of the column in the datasets containing the labels"},
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached preprocessed datasets or not."}
