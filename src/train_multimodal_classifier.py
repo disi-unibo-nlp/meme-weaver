@@ -68,9 +68,6 @@ class Transform(torch.nn.Module):
         return x
 
 
-
-
-
 def main():
     # 1. Parse input arguments
     # See all possible arguments in src/transformers/training_args.py
@@ -120,6 +117,15 @@ def main():
         trust_remote_code=True,
     )
     
+    config.num_gcn_layers = model_args.num_gcn_layers
+    config.num_text_gcn_layers = model_args.num_text_gcn_layers
+    config.num_image_gcn_layers = model_args.num_image_gcn_layers
+    config.custom_gcn = model_args.custom_gcn
+    config.save_affinity = model_args.save_affinity
+    config.apply_ffw = model_args.apply_ffw
+    config.output_dir = training_args.output_dir
+    config.batch_size = training_args.per_device_eval_batch_size
+    
     model = CLIPForMultimodalClassification.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -127,6 +133,14 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         config=config,
     )
+
+    # try to init parameters in a different way
+    import torch.nn.init as init
+    init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
+    init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
+    init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
+    init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
+
     for param in model.parameters(): param.data = param.data.contiguous()
 
 

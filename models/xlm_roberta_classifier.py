@@ -64,7 +64,7 @@ class XLMRobertaClassificationHead(nn.Module):
         
         custom_gcn = gcn_map[config.custom_gcn]
         self.rs_gcn_layers = nn.ModuleList(
-            [custom_gcn(config) for _ in range(config.num_gcn_layers)]
+            [custom_gcn(config.hidden_size) for _ in range(config.num_gcn_layers)]
         )
 
         self.apply_ffw = config.apply_ffw

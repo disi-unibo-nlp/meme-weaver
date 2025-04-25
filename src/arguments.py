@@ -172,6 +172,22 @@ class ModelArguments:
             )
         },
     )
+    num_text_gcn_layers: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": (
+                "The number of text GCN layers to use."
+            )
+        },
+    )
+    num_image_gcn_layers: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": (
+                "The number of image GCN layers to use."
+            )
+        },
+    )
     custom_gcn: str = field(
         default="learn",
         metadata={

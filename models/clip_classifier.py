@@ -10,7 +10,8 @@ from transformers.utils import (
     ModelOutput,
 )
 
-from transformers.activations import ACT2FN                            
+import torch.nn.init as init
+from transformers.activations import ACT2FN                           
 
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
@@ -74,11 +75,10 @@ class ClipClassificationHead(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.dense = nn.Linear(config.projection_dim, config.projection_dim)
-        classifier_dropout = config.attention_dropout
-        import pdb; pdb.set_trace()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        classifier_dropout = 0.1
         self.dropout = nn.Dropout(classifier_dropout)
-        self.out_proj = nn.Linear(config.projection_dim, config.num_labels)
+        self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
         custom_gcn = gcn_map[config.custom_gcn]
         self.rs_gcn_layers = nn.ModuleList(
@@ -90,8 +90,7 @@ class ClipClassificationHead(nn.Module):
         if self.apply_ffw:
             self.mlp = CLIPMLP(config)
 
-    def forward(self, features, **kwargs):
-        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])  
+    def forward(self, x, **kwargs):
 
         R_norm = None
         for gcn in self.rs_gcn_layers:
@@ -140,6 +139,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         text_config = config.text_config
         vision_config = config.vision_config
+        self.num_labels = config.num_labels
 
         self.projection_dim = config.projection_dim
         self.text_embed_dim = text_config.hidden_size
@@ -156,8 +156,28 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.logit_scale = nn.Parameter(torch.tensor(self.config.logit_scale_init_value))
 
         self.classifier = nn.Linear(self.projection_dim * 2, config.num_labels)
+        # self.classifier = ClipClassificationHead(config)
 
         self.loss_fct = nn.CrossEntropyLoss()
+
+        custom_gcn = gcn_map[config.custom_gcn]
+        self.rs_gcn_layers = nn.ModuleList(
+            [custom_gcn(self.projection_dim * 2) for _ in range(config.num_gcn_layers)]
+        )
+
+
+        self.text_gcn_layers = nn.ModuleList(
+            [custom_gcn(self.projection_dim) for _ in range(config.num_text_gcn_layers)]
+        )
+
+        self.image_gcn_layers = nn.ModuleList(
+            [custom_gcn(self.projection_dim) for _ in range(config.num_image_gcn_layers)]
+        )
+
+        self.apply_ffw = config.apply_ffw
+        if self.apply_ffw:
+            config.hidden_act = "quick_gelu"
+            self.mlp = CLIPMLP(config)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -259,6 +279,23 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         return image_features
 
+    def apply_gcn(self, fused_features, gcn_layers):
+        """
+        Apply the GCN layers (and optional feed-forward) to the fused features.
+        Returns:
+            fused_features (torch.Tensor): The updated features after GCN and optional FFN.
+            R_norm (optional): Any second output from the last GCN layer (if applicable).
+        """
+        R_norm = None
+        for gcn in gcn_layers:
+            fused_features, R_norm = gcn(fused_features)
+            if self.apply_ffw:
+                x_fw = self.mlp(fused_features)
+                # Residual connection
+                fused_features = x_fw + fused_features
+
+        return fused_features, R_norm
+
     @add_start_docstrings_to_model_forward(CLIP_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CLIPOutput, config_class=CLIPConfig)
     def forward(
@@ -329,8 +366,14 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
+        image_embeds, R_norm_image = self.apply_gcn(image_embeds, self.image_gcn_layers)
+        text_embeds, R_norm_text = self.apply_gcn(text_embeds, self.text_gcn_layers)
+
         # Multimodal fusion (concatenation in this case)
         fused_features = torch.cat((text_embeds, image_embeds), dim=-1)
+
+        # Apply GCN layers (and optional feed-forward) to the fused features.
+        fused_features, R_norm = self.apply_gcn(fused_features, self.rs_gcn_layers)
 
         # Compute logits for classification.
         logits = self.classifier(fused_features)

@@ -68,11 +68,10 @@
 # --per_device_eval_batch_size 140 
 
 ######################## TRAINING ON MAMI DATASET ############
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=3 python3 src/train_text_classifier.py \
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=1 python3 src/train_text_classifier.py \
 --num_gcn_layers 1 \
---seed 45 \
 --no_peft \
---run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45_test2 \
+--run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_test_repr_test \
 --text_column text \
 --target_column label \
 --logging disabled \
@@ -80,7 +79,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=3 python3 src
 --do_eval \
 --do_predict \
 --output_dir output_mami \
---model_name_or_path openai/clip-vit-base-patch32 \
+--model_name_or_path FacebookAI/xlm-roberta-large \
 --dataset_name paoloitaliani/mami \
 --log_level error \
 --gradient_accumulation_steps 1 \

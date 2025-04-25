@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 
 class Rs_GCN_upd(nn.Module):
-    def __init__(self, config):
+    def __init__(self, hidden_size):
         """
         Initialize the Rs_GCN_upd module.
 
@@ -15,13 +15,13 @@ class Rs_GCN_upd(nn.Module):
         """
         super(Rs_GCN_upd, self).__init__()
         # Fully connected layer to compute φ(·) for transforming input embeddings.
-        self.phi = nn.Linear(config.hidden_size, config.hidden_size)
+        self.phi = nn.Linear(hidden_size, hidden_size)
         # Fully connected layer to compute γ(·) for transforming input embeddings.
-        self.psi = nn.Linear(config.hidden_size, config.hidden_size)
+        self.psi = nn.Linear(hidden_size, hidden_size)
         # Linear transformation applied to the node features after aggregation.
-        self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_g = nn.Linear(hidden_size, hidden_size)
         # Residual weights linear layer applied on the aggregated features.
-        self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_r = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, features):
         """
@@ -61,7 +61,7 @@ class Rs_GCN_upd(nn.Module):
 
 
 class Rs_GCN(nn.Module):
-    def __init__(self, config):
+    def __init__(self, hidden_size):
         """
         Initialize the Rs_GCN module.
 
@@ -70,13 +70,13 @@ class Rs_GCN(nn.Module):
         """
         super(Rs_GCN, self).__init__()
         # Fully connected layer to compute φ(·) for transforming input embeddings.
-        self.phi = nn.Linear(config.hidden_size, config.hidden_size)
+        self.phi = nn.Linear(hidden_size, hidden_size)
         # Fully connected layer to compute γ(·) for transforming input embeddings.
-        self.psi_param = nn.Linear(config.hidden_size, config.hidden_size)
+        self.psi_param = nn.Linear(hidden_size, hidden_size)
         # Linear transformation applied to the node features after aggregation.
-        self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_g = nn.Linear(hidden_size, hidden_size)
         # Residual weights linear layer applied on the aggregated features.
-        self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_r = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, features):
         """
@@ -113,7 +113,7 @@ class Rs_GCN(nn.Module):
 
 
 class Sim_GCN(nn.Module):
-    def __init__(self, config):
+    def __init__(self, hidden_size):
         """
         Initialize the Sim_GCN module.
 
@@ -123,11 +123,11 @@ class Sim_GCN(nn.Module):
         super(Sim_GCN, self).__init__()
 
         # Linear transformation applied to the node features after aggregation.
-        self.W_g = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_g = nn.Linear(hidden_size, hidden_size)
         # Residual weights linear layer applied on the aggregated features.
-        self.W_r = nn.Linear(config.hidden_size, config.hidden_size)
+        self.W_r = nn.Linear(hidden_size, hidden_size)
 
-        # self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        # self.layer_norm = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, features):
         """
