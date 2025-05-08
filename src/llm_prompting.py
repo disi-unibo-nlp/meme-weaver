@@ -12,6 +12,14 @@ from transformers import BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 
+"""
+Examples of usage:
+
+python qwen25vl_prompting.py --meme-dir $EXIST2025_MEME_DIR --prompt B --output-path ./exist2025_promptB.csv
+python qwen25vl_prompting.py --meme-dir paoloitaliani/mami --huggingface-dataset true --prompt B --output-path ./mami_promptB.csv
+
+"""
+
 def image_captioning(
     meme_path: str,
     prompt: str,
