@@ -152,7 +152,7 @@ if __name__ == "__main__":
     # -- prompt set
     prompts = {
         'A': 'Describe this image without including what text reads and credit sources.',
-        'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content.',
+        'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content. Please be concise (no more than three sentences) while including all relevant information.',
     }
 
     # -- llm model building
