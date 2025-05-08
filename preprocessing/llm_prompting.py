@@ -15,8 +15,8 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, Auto
 """
 Examples of usage:
 
-python qwen25vl_prompting.py --meme-dir $EXIST2025_MEME_DIR --prompt B --output-path ./exist2025_promptB.csv
-python qwen25vl_prompting.py --meme-dir paoloitaliani/mami --huggingface-dataset true --prompt B --output-path ./mami_promptB.csv
+python llm_prompting.py --meme-dir $EXIST2025_MEME_DIR --output-path ./exist2025.csv
+python llm_prompting.py --meme-dir paoloitaliani/mami --huggingface-dataset true --output-path ./mami.csv
 
 """
 
@@ -89,20 +89,22 @@ def process_dataset():
     for idx, (meme_id, meme_path) in enumerate(tqdm(meme_data, total=len(meme_ids))):
 
         try:
-            image_caption = image_captioning(meme_path, prompts[args.prompt])
+            prompt_a = image_captioning(meme_path, prompts['A'])
+            prompt_b = image_captioning(meme_path, prompts['B'])
         except torch.cuda.OutOfMemoryError:
-            print(f'Memory issues with: {meme_path}')
-            image_caption = '@MEMORY_ISSUE'
+            prompt_a = '@MEMORY_ISSUE'
+            prompt_b = '@MEMORY_ISSUE'
             issues.append( (idx, meme_path) )
+            print(f'Memory issues with: {meme_path}')
 
-        sample = (meme_id, meme_path, image_caption)
+        sample = (meme_id, prompt_a, prompt_b)
         data.append( sample )
 
         if idx == 0:
-            data_df = pd.DataFrame([sample], columns=['meme_id', 'meme_path', 'caption'])
+            data_df = pd.DataFrame([sample], columns=['meme_id', 'promptA', 'promptB'])
             data_df.to_csv(args.output_path, index=False)
         else:
-            data_df = pd.DataFrame(data, columns=['meme_id', 'meme_path', 'caption'])
+            data_df = pd.DataFrame(data, columns=['meme_id', 'promptA', 'promptB'])
             data_df.loc[[idx]].to_csv(
                 args.output_path,
                 index=False,
@@ -121,8 +123,10 @@ def fix_issues():
     issues = []
     for idx, meme_path in tqdm(issues_info):
         try:
-            image_caption = image_captioning(meme_path, prompts[args.prompt])
-            output_df.iloc[idx, output_df.columns.get_loc('caption')] = image_caption
+            prompt_a = image_captioning(meme_path, prompts['A'])
+            prompt_b = image_captioning(meme_path, prompts['B'])
+            output_df.iloc[idx, output_df.columns.get_loc('promptA')] = prompt_a
+            output_df.iloc[idx, output_df.columns.get_loc('promptB')] = prompt_b
         except torch.cuda.OutOfMemoryError:
             issues.append( (idx, meme_path) )
             print(f'Memory issues with: {meme_path}')
@@ -138,7 +142,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--meme-dir", required=True, type=str, help="Path to where the directory containing meme images is")
     parser.add_argument('--huggingface-dataset', type=lambda x: bool(strtobool(x)), default=False, help='In case the dataset comes from HuggingFace')
-    parser.add_argument("--prompt", default="A", const="A", nargs="?", choices=["A", "B"], help="Choose one the prompts already defined in the script")
     parser.add_argument("--model-id", default="Qwen/Qwen2.5-VL-7B-Instruct", type=str, help="HuggingFace Model ID")
     parser.add_argument('--quant', type=lambda x: bool(strtobool(x)), default=False, help='In case model should be quantized')
     parser.add_argument('--fix-issues', type=lambda x: bool(strtobool(x)), default=False, help='In case you need to fix issues in already processed dataset')
