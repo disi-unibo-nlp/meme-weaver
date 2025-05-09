@@ -155,7 +155,13 @@ def main():
     )
     for param in model.parameters(): param.data = param.data.contiguous()
 
-    for batch_size in [50]: # [training_args.per_device_eval_batch_size]:
+    batch_sizes = (
+        [training_args.per_device_eval_batch_size]
+        if training_args.per_device_eval_batch_size != -1
+        else range(1, 200)
+    )
+
+    for batch_size in batch_sizes:
 
         training_args.per_device_eval_batch_size = batch_size
         trainer = Trainer(

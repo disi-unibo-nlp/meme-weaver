@@ -1,3 +1,5 @@
+import os
+import pickle
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
@@ -57,6 +59,7 @@ class CLIPOutput(ModelOutput):
 
     loss: Optional[torch.FloatTensor] = None
     logits: torch.FloatTensor = None
+    fused_features: torch.FloatTensor = None
     text_embeds: torch.FloatTensor = None
     image_embeds: torch.FloatTensor = None
     text_model_output: BaseModelOutputWithPooling = None
@@ -160,6 +163,9 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         self.loss_fct = nn.CrossEntropyLoss()
 
+        self.num_text_gcn_layers = config.num_text_gcn_layers
+        self.num_image_gcn_layers = config.num_image_gcn_layers
+
         custom_gcn = gcn_map[config.custom_gcn]
         self.rs_gcn_layers = nn.ModuleList(
             [custom_gcn(self.projection_dim * 2) for _ in range(config.num_gcn_layers)]
@@ -177,7 +183,14 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.apply_ffw = config.apply_ffw
         if self.apply_ffw:
             config.hidden_act = "quick_gelu"
+            config.hidden_size = self.projection_dim * 2
+            config.intermediate_size = self.projection_dim * 4
+            config.num_hidden_layers = 12
             self.mlp = CLIPMLP(config)
+
+        self.output_dir = config.output_dir
+        self.batch_size = config.batch_size
+        self.save_affinity = config.save_affinity
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -373,10 +386,26 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         fused_features = torch.cat((text_embeds, image_embeds), dim=-1)
 
         # Apply GCN layers (and optional feed-forward) to the fused features.
-        fused_features, R_norm = self.apply_gcn(fused_features, self.rs_gcn_layers)
+        fused_features_upd, R_norm = self.apply_gcn(fused_features, self.rs_gcn_layers)
 
         # Compute logits for classification.
-        logits = self.classifier(fused_features)
+        logits = self.classifier(fused_features_upd)
+
+        if self.save_affinity:
+            output_path = os.path.join(self.output_dir, f"affinity_matrices_{self.batch_size}_bs")
+            os.makedirs(output_path, exist_ok=True)
+            
+            proc_files = len(os.listdir(output_path))
+
+            # Save data
+            with open(os.path.join(output_path, f'affinity_batch_{proc_files + 1}.pkl'), 'wb') as f:
+                pickle.dump({'R_norm': R_norm, 
+                             'features': fused_features.cpu(),
+                             'features_upd': fused_features_upd.cpu(),
+                             'labels': labels.cpu(), 
+                             "image_embeds": image_embeds.cpu(), 
+                             "text_embeds": text_embeds.cpu(),
+                             "logits": logits.cpu()}, f)
 
         loss = None
         if labels is not None:
@@ -389,6 +418,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         return CLIPOutput(
             loss=loss,
             logits=logits,
+            fused_features=fused_features,
             text_embeds=text_embeds,
             image_embeds=image_embeds,
             text_model_output=text_outputs,

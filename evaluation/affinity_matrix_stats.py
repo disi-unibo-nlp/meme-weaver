@@ -83,7 +83,7 @@ def main():
             all_affinity_data.append(pickle.load(f))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/xlm-roberta-large")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 
     output_path = os.path.join(args.output_dir, args.run_name)
 

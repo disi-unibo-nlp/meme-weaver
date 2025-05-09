@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=2 python3 evaluation/affinity_matrix_stats.py \
---percentile 10 \
---fig_type bottom \
+CUDA_VISIBLE_DEVICES=2 python3 evaluation/affinity_matrix_stats_multimodal.py \
+--percentile 0 \
+--fig_type top \
 --output_dir output_mami \
---batch_size 100 \
---run_name xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45
+--batch_size 20 \
+--run_name clip-vit-large_batch64_5e-6lr_1gcn_xuinit

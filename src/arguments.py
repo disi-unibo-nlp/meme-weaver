@@ -204,3 +204,11 @@ class ModelArguments:
         default=False,
         metadata={"help": "Apply feed forward network."},
     )
+    checkpoint_path: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "The path to the checkpoint to use."
+            )
+        },
+    )
