@@ -5,6 +5,7 @@ import os
 import math
 import torch
 import numpy as np
+from torch.nn import init
 from scipy.special import softmax
 from codecarbon import EmissionsTracker
 from sklearn.metrics import (
@@ -123,6 +124,12 @@ def compute_metrics(p: EvalPrediction):
     }
     
     return result
+
+
+def init_gcn_layer(layer):
+    """Apply Xavier init to the four core weight tensors of a single GCN layer."""
+    for submodule in (layer.phi, layer.psi_param, layer.W_g, layer.W_r):
+        init.xavier_uniform_(submodule.weight)
 
 
 model_constructors = {

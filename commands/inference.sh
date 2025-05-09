@@ -14,14 +14,15 @@
 ################## INFERENCE ON MAMI DATASET MULTIMODAL ############
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python3 evaluation/inference_multimodal.py \
 --split test \
---run_name clip-vit-large_batch100_5e-6lr_1gcn \
+--run_name clip-vit-large_batch20_5e-6lr_1gcn_xuinit \
 --model_name_or_path openai/clip-vit-large-patch14 \
 --output_dir output_mami \
 --dataset_name paoloitaliani/mami \
 --target_column label \
 --text_column text \
+--save_affinity \
 --image_column image_path \
---per_device_eval_batch_size 100
+--per_device_eval_batch_size -1 \
 
 ############ INFERENCE ON MEMES_EXIST 2024 DATASET ############
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=0 python3 evaluation/inference.py \

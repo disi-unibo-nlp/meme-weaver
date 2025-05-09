@@ -10,14 +10,14 @@
 # you may not use this file except in compliance with the License.
 
 
-
+import os
 import torch
 import wandb
 import numpy
 import random
 
 from datasets import load_dataset
-from torchvision.io import ImageReadMode, read_image
+import torch.nn.init as init
 from torchvision.transforms import CenterCrop, ConvertImageDtype, Normalize, Resize
 from torchvision.transforms.functional import InterpolationMode
 
@@ -45,7 +45,7 @@ from torchvision.transforms import (
 )
 
 
-from utils import compute_metrics, predict_class
+from utils import compute_metrics, predict_class, init_gcn_layer
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
 
@@ -125,9 +125,17 @@ def main():
     config.apply_ffw = model_args.apply_ffw
     config.output_dir = training_args.output_dir
     config.batch_size = training_args.per_device_eval_batch_size
+
+    if model_args.checkpoint_path is not None:
+        checkpoint_folder = next(folder for folder in os.listdir(model_args.checkpoint_path) if folder.startswith("checkpoint-"))
+        
+        # Append the checkpoint folder to the base path
+        checkpoint_path = os.path.join(model_args.checkpoint_path, checkpoint_folder)
+    else:
+        checkpoint_path = model_args.model_name_or_path
     
     model = CLIPForMultimodalClassification.from_pretrained(
-        model_args.model_name_or_path,
+        checkpoint_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
@@ -135,14 +143,24 @@ def main():
     )
 
     # try to init parameters in a different way
-    import torch.nn.init as init
-    init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
-    init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
-    init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
-    init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
+    if config.num_gcn_layers > 0 and model_args.checkpoint_path is None:
+        init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
+        init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
+        init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
+        init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
+
+    if config.num_text_gcn_layers > 0 and model_args.checkpoint_path is None:
+        init.xavier_uniform_(model.text_gcn_layers[0].phi.weight)
+        init.xavier_uniform_(model.text_gcn_layers[0].psi_param.weight)
+        init.xavier_uniform_(model.text_gcn_layers[0].W_g.weight)
+        init.xavier_uniform_(model.text_gcn_layers[0].W_r.weight)
+    if config.num_image_gcn_layers > 0 and model_args.checkpoint_path is None:
+        init.xavier_uniform_(model.image_gcn_layers[0].phi.weight)
+        init.xavier_uniform_(model.image_gcn_layers[0].psi_param.weight)
+        init.xavier_uniform_(model.image_gcn_layers[0].W_g.weight)
+        init.xavier_uniform_(model.image_gcn_layers[0].W_r.weight)
 
     for param in model.parameters(): param.data = param.data.contiguous()
-
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
@@ -183,9 +201,14 @@ def main():
     def tokenize_texts(examples):
         
         captions = [caption for caption in examples[data_args.text_column]]
+
+        if data_args.add_caption: 
+            captions = [inp + "[CPT]" + cpt  for inp, cpt in zip(captions, examples["qwen25vl_caption"])]
+
         text_inputs = tokenizer(captions, max_length=tokenizer.model_max_length, padding="max_length", truncation=True)
         examples["input_ids"] = text_inputs.input_ids
         examples["attention_mask"] = text_inputs.attention_mask
+        examples["label"] = [caption for caption in examples[data_args.target_column]]
         return examples
     
     def preprocess_train(example_batch):
@@ -299,7 +322,7 @@ def main():
         pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
         input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
         attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
-        labels = torch.tensor([example[data_args.target_column] for example in examples])
+        labels = torch.tensor([example["label"] for example in examples])
         return {
             "pixel_values": pixel_values,
             "input_ids": input_ids,
@@ -310,6 +333,7 @@ def main():
     n_steps = len(train_dataset)/training_args.per_device_train_batch_size * training_args.num_train_epochs
     training_args.eval_steps = n_steps // 8
     training_args.save_steps = n_steps // 8
+    training_args.logging_steps = n_steps // 100
 
     # 8. Initalize our trainer
     trainer = Trainer(
