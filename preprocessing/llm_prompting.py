@@ -12,14 +12,6 @@ from transformers import BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 
-"""
-Examples of usage:
-
-python llm_prompting.py --meme-dir $EXIST2025_MEME_DIR --output-path ./exist2025.csv
-python llm_prompting.py --meme-dir paoloitaliani/mami --huggingface-dataset true --output-path ./mami.csv
-
-"""
-
 def image_captioning(
     meme_path: str,
     prompt: str,
@@ -55,7 +47,7 @@ def image_captioning(
     inputs = inputs.to("cuda")
 
     # Inference: Generation of the output
-    generated_ids = model.generate(**inputs, max_new_tokens=128)
+    generated_ids = model.generate(**inputs, max_new_tokens=512)
     generated_ids_trimmed = [
         out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
     ]
@@ -152,7 +144,8 @@ if __name__ == "__main__":
     # -- prompt set
     prompts = {
         'A': 'Describe this image without including what text reads and credit sources.',
-        'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content. Please be concise (no more than three sentences) while including all relevant information.',
+        # 'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content. Please be concise (no more than three sentences) while including all relevant information.',
+        'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content.',
     }
 
     # -- llm model building
