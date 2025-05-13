@@ -202,8 +202,8 @@ def main():
         
         captions = [caption for caption in examples[data_args.text_column]]
 
-        if data_args.add_caption: 
-            captions = [inp + "[CPT]" + cpt  for inp, cpt in zip(captions, examples["qwen25vl_caption"])]
+        if data_args.image_caption is not None: 
+            captions = [inp + "[CPT]" + cpt  for inp, cpt in zip(captions, examples[data_args.image_caption])]
 
         text_inputs = tokenizer(captions, max_length=tokenizer.model_max_length, padding="max_length", truncation=True)
         examples["input_ids"] = text_inputs.input_ids

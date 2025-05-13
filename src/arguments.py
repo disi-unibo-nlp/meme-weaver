@@ -101,9 +101,8 @@ class DataTrainingArguments:
     dataset_subset: Optional[str] = field(
         default=None, metadata={"help": "The subset of the dataset to use."}
     )   
-    add_caption: bool = field(
-        default=False,
-        metadata={"help": "Add references to the input."},
+    image_caption: Optional[str] = field(
+        default=None, metadata={"help": "The image caption to use."}
     )
     split: Optional[str] = field(
 
