@@ -6,13 +6,32 @@ from tqdm import tqdm
 from googletrans import Translator
 from datasets import Dataset, DatasetDict, Features, Value, Image, concatenate_datasets
 
-CAPTION_MODEL = "qwen25vl"
 
 
-def get_image_path(path_to_meme, meme):
-    path = os.path.join(path_to_meme, meme)
 
-    return path
+
+def get_captions(meme, prompt, caption_csv):
+    caption = caption_csv[caption_csv['meme_id'] == meme][prompt].values[0]
+
+    return caption
+
+def add_captions(df, csv, caption_csv_id, prompts=('promptA','promptB')):
+    for p in prompts:
+        df[f'caption_{p}'] = (
+            df[caption_csv_id]
+              .apply(lambda id_val: get_captions(id_val, p, csv))
+        )
+    return df
+
+def add_image_path(df, root):
+    df['image'] = df["id"].apply(lambda x: os.path.join(root, x))
+    return df
+
+
+def prepare_df(df, csv, root, caption_csv_id, prompts):
+    df = add_captions(df, csv, caption_csv_id, prompts)
+    df = add_image_path(df, root)
+    return df
 
 
 def process_exist_2024():
@@ -20,12 +39,6 @@ def process_exist_2024():
     def translate_text(text):
 
         return translator.translate(text, dest="en", src='es').text
-
-    def get_captions(meme):
-        caption = caption_csv[caption_csv['meme_id'] == meme]['caption'].values[0]
-
-        return caption
-
 
     def majority_vote(labels):
         # Count the number of "YES" responses
@@ -37,13 +50,14 @@ def process_exist_2024():
     tqdm.pandas()
 
     features = Features({
-        "id_EXIST": Value("string"),
+        "id": Value("string"),
         "lang": Value("string"),
         "text": Value("string"),
         "text_en": Value("string"),
-        f'{CAPTION_MODEL}_caption': Value("string"),
+        f'caption_promptA': Value("string"),
+        f'caption_promptB': Value("string"),
         "hard_label_task4": Value("int8"),
-        "image_path": Image()  # This will ensure that image data is handled correctly.
+        "image": Image()  # This will ensure that image data is handled correctly.
     })
 
     data_path = os.path.join("exist2024_memes_dataset", "training", "EXIST2024_training.json")
@@ -52,8 +66,7 @@ def process_exist_2024():
 
     df_labelled  = pd.DataFrame.from_dict(data_labelled, orient='index')
     df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
-    path_to_meme = os.path.join("exist2024_memes_dataset", "training", "memes")
-    df_labelled['image_path'] = df_labelled['meme'].apply(get_image_path, path_to_meme)
+    df_labelled = df_labelled.rename(columns={"meme": "id"})
 
     if not "text_en" in df_labelled.columns:
         print("Translating texts...")
@@ -70,13 +83,13 @@ def process_exist_2024():
         json.dump(data_labelled, file, ensure_ascii=False)
 
     # Load the CSV file containing the captions
-    caption_csv = pd.read_csv(os.path.join("data", f'{CAPTION_MODEL}_captions_training.csv'))
-
-    # meme_id to string
+    caption_csv = pd.read_csv(os.path.join("data", args.caption_model,  f'exist.csv'))
     caption_csv['meme_id'] = caption_csv['meme_id'].astype(str)
-    df_labelled[f'{CAPTION_MODEL}_caption'] = df_labelled['id_EXIST'].apply(get_captions)
 
-    df_labelled = df_labelled[["id_EXIST", "lang", "text", 'text_en', "hard_label_task4", "image_path", f'{CAPTION_MODEL}_caption']]
+    path_to_meme = os.path.join("exist2024_memes_dataset", "training", "memes")
+    prepare_df(df_labelled, caption_csv, path_to_meme, "id_EXIST", ('promptA', 'promptB'))
+
+    df_labelled = df_labelled[["id", "lang", "text", 'text_en', "hard_label_task4", "image", "caption_promptA", "caption_promptB"]]
 
     df_shuffled = df_labelled.sample(frac=1, random_state=42).reset_index(drop=True)
 
@@ -112,20 +125,29 @@ def process_mami():
         "label": Value("int8"),
         "shaming": Value("int8"),
         "stereotype": Value("int8"),
+        f'caption_promptA': Value("string"),
+        f'caption_promptB': Value("string"),
         "objectification": Value("int8"),
         "violence": Value("int8"),
         "text": Value("string"),
-        "image_path": Image()  # This will ensure that image data is handled correctly.
+        "image": Image()  # This will ensure that image data is handled correctly.
     })
 
     test_df = pd.read_csv(os.path.join("MAMI_Dataset", "test.tsv"), sep="\t")
     train_df = pd.read_csv(os.path.join("MAMI_Dataset", "train.tsv"), sep="\t")
     val_df = pd.read_csv(os.path.join("MAMI_Dataset", "validation.tsv"), sep="\t")
 
+    test_df = test_df.rename(columns={"id": "meme"})
+    train_df = train_df.rename(columns={"id": "meme"})
+    val_df = val_df.rename(columns={"id": "meme"})
+
+
     path_to_meme = os.path.join("MAMI_Dataset", "MAMI_2022_images")
-    test_df["image_path"] = test_df["file_name"].apply(lambda x: os.path.join(path_to_meme, x))
-    train_df["image_path"] = train_df["file_name"].apply(lambda x: os.path.join(path_to_meme, x))
-    val_df["image_path"] = val_df["file_name"].apply(lambda x: os.path.join(path_to_meme, x))
+    caption_csv = pd.read_csv(os.path.join("data", args.caption_model, f'mami.csv'))
+
+    test_df = prepare_df(test_df, caption_csv, path_to_meme, "file_name", ('promptA', 'promptB'))
+    train_df = prepare_df(train_df, caption_csv, path_to_meme, "file_name", ('promptA', 'promptB'))
+    val_df = prepare_df(val_df, caption_csv, path_to_meme, "file_name", ('promptA', 'promptB'))
 
     dataset_train = Dataset.from_pandas(train_df, features=features)
     dataset_val = Dataset.from_pandas(val_df, features=features)
@@ -142,7 +164,7 @@ def process_mami():
 
 def main():
 
-    if args.dataset == "memes_exist2024":
+    if args.dataset == "exist":
         process_exist_2024()
     elif args.dataset == "mami":
         process_mami()
@@ -153,7 +175,8 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, choices=["exist2024", "mami"], required=True)
+    parser.add_argument("--dataset", type=str, choices=["exist", "mami"], required=True)
+    parser.add_argument("--caption_model", type=str, default="qwen25vl_prompting")
 
     args = parser.parse_args()
 
