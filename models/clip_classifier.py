@@ -408,6 +408,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
                              "logits": logits.cpu()}, f)
 
         loss = None
+        import pdb; pdb.set_trace()
         if labels is not None:
             loss = self.loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
