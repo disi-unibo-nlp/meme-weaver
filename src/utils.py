@@ -86,8 +86,8 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
         inst_id = predict_dataset["id"][i].split(".")[0]
         value = "YES" if preds[i] == 1 else "NO"
         pred_dict = {"test_case": "EXIST2025", "id": inst_id, "value": value}
-        if split != "test_challenge":
-            pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
+        # if split != "test_challenge":
+        #     pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
             
         all_pred_dicts.append(pred_dict)
 
