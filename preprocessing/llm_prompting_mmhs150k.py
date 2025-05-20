@@ -108,26 +108,25 @@ def text_tweet_captioning(
 
 def process_dataset():
     # -- loading img dataset
-    if args.huggingface_dataset:
-        dataset = load_dataset(args.img_dir)
+    img_paths = sorted( glob.glob(os.path.join(args.img_dir, '*')) )
+    img_data =  {os.path.basename(img_path).split('.')[0]:img_path for img_path in img_paths}
+    with open('./MMHS150K/MMHS150K_GT.json', 'r') as f:
+        metadata = json.load(f)
 
-        img_ids = []
-        img_paths = []
-        for split in dataset.keys():
-            img_ids += dataset[split]['file_name']
-            img_paths += dataset[split]['image_path']
-
-    else:
-        img_paths = sorted( glob.glob(os.path.join(args.img_dir, '*')) )
-        img_ids = [ os.path.basename(img_path).split('.')[0] for img_path in img_paths]
-        with open('./MMHS150K/MMHS150K_GT.json', 'r') as f:
-            metadata = json.load(f)
+    # already_done = []
+    # if os.path.exists(args.output_path):
+    # already_done = pd.read_csv('mmhs150k.csv')['tweet_id'].tolist()
+    # for done_tweet_id in already_done:
+    #     del metadata[str(done_tweet_id)]
 
     data = []
     issues = []
-    img_data = zip(img_ids, img_paths)
-    for idx, (img_id, img_path) in enumerate(tqdm(img_data, total=len(img_ids))):
-        tweet_text = metadata[img_id]["tweet_text"]
+    for idx, tweet_id in enumerate(tqdm(metadata.keys())):
+        # if tweet_id in already_done:
+        #     continue
+
+        img_path = img_data[tweet_id]
+        tweet_text = metadata[tweet_id]["tweet_text"]
         try:
             prompt_c = multimodal_tweet_captioning(tweet_text, img_path, prompts['C'])
             prompt_d = text_tweet_captioning(tweet_text, prompts['D'])
@@ -137,14 +136,14 @@ def process_dataset():
             issues.append( (idx, img_path) )
             print(f'Memory issues with: {img_path}')
 
-        sample = (img_id, prompt_c, prompt_d)
+        sample = (tweet_id, prompt_c, prompt_d)
         data.append( sample )
 
         if idx == 0:
-            data_df = pd.DataFrame([sample], columns=['img_id', 'promptC', 'promptD'])
+            data_df = pd.DataFrame([sample], columns=['tweet_id', 'promptC', 'promptD'])
             data_df.to_csv(args.output_path, index=False)
         else:
-            data_df = pd.DataFrame(data, columns=['img_id', 'promptC', 'promptD'])
+            data_df = pd.DataFrame(data, columns=['tweet_id', 'promptC', 'promptD'])
             data_df.loc[[idx]].to_csv(
                 args.output_path,
                 index=False,
@@ -152,29 +151,6 @@ def process_dataset():
                 mode='a',
             )
 
-    with open(args.output_path.replace('.csv', '.pkl'), 'wb') as handle:
-        pickle.dump(issues, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-def fix_issues():
-    output_df = pd.read_csv(args.output_path)
-    with open(args.output_path.replace('.csv', '.pkl'), 'rb') as handle:
-        issues_info = pickle.load(handle)
-    with open('./MMHS150K/MMHS150K_GT.json', 'r') as f:
-        metadata = json.load(f)
-
-    issues = []
-    for idx, img_path in tqdm(issues_info):
-        tweet_text = metadata[os.path.basename(img_path).split('.')[0]]["tweet_text"]
-        try:
-            prompt_c = multimodal_tweet_captioning(tweet_text, img_path, prompts['C'])
-            prompt_d = text_tweet_captioning(tweet_text, prompts['D'])
-            output_df.iloc[idx, output_df.columns.get_loc('promptC')] = prompt_c
-            output_df.iloc[idx, output_df.columns.get_loc('promptD')] = prompt_d
-        except torch.cuda.OutOfMemoryError:
-            issues.append( (idx, img_path) )
-            print(f'Memory issues with: {img_path}')
-
-    output_df.to_csv(args.output_path, index=False)
     with open(args.output_path.replace('.csv', '.pkl'), 'wb') as handle:
         pickle.dump(issues, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
