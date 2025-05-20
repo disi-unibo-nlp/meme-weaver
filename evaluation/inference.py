@@ -16,7 +16,7 @@ from transformers import (
     HfArgumentParser,
 )
 
-from src.utils import get_model, compute_metrics
+from src.utils import get_model, compute_metrics, predict_class
 from src.arguments import ModelArguments, DataTrainingArguments
 
 
@@ -114,28 +114,32 @@ def main():
     for batch_size in [training_args.per_device_eval_batch_size]: # range(1, 200):
 
         training_args.per_device_eval_batch_size = batch_size
+
+        metrics_function = None if data_args.save_inference else compute_metrics 
         trainer = Trainer(
             model=model,
             args=training_args,
             train_dataset=None,
             eval_dataset=None,
-            compute_metrics=compute_metrics,
+            compute_metrics=metrics_function,
             tokenizer=tokenizer,
             data_collator=data_collator,
         )
 
+        if data_args.save_inference:
+            predict_class(trainer, split_dataset, len(split_dataset), training_args, data_args.split)
+        else:
+            predict_results = trainer.predict(split_dataset, metric_key_prefix=data_args.split)
 
-        predict_results = trainer.predict(split_dataset, metric_key_prefix="predict")
-        metrics = predict_results.metrics
+            metrics = predict_results.metrics
 
-        metric_output_path = os.path.join(output_path, "inferences")
-        os.makedirs(metric_output_path, exist_ok=True)
-        # Save the metrics to json 
-        metrics_file = os.path.join(metric_output_path, f"{data_args.split}_results_batch{training_args.per_device_eval_batch_size}.json")
-        with open(metrics_file, "w") as f:
-            json.dump(metrics, f, indent=4)
+            metric_output_path = os.path.join(output_path, "inferences")
+            os.makedirs(metric_output_path, exist_ok=True)
+            # Save the metrics to json 
+            metrics_file = os.path.join(metric_output_path, f"{data_args.split}_results_batch{training_args.per_device_eval_batch_size}.json")
+            with open(metrics_file, "w") as f:
+                json.dump(metrics, f, indent=4)
 
         
-
 if __name__ == "__main__":
     main()

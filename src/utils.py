@@ -3,6 +3,7 @@ sys.path.append('./')
 
 import os
 import math
+import json
 import torch
 import numpy as np
 from torch.nn import init
@@ -71,31 +72,42 @@ def get_carburacy(score, emission_train, emission_test, alpha=10, beta_train=1, 
     return carburacy_train, carburacy_test, carburacy
 
 
-
-def predict_class(trainer, predict_dataset, max_predict_samples, training_args, split):
+def predict_class(trainer, predict_dataset, max_predict_samples, training_args, split, target_column=None):
     test_tracker = EmissionsTracker(measure_power_secs=100000, save_to_file=False)
     test_tracker.start()
     predict_results = trainer.predict(predict_dataset, metric_key_prefix=split)
     test_emissions = test_tracker.stop()
 
-    metrics = predict_results.metrics
+    logits = predict_results.predictions[0]
+    preds = np.argmax(logits, axis=1)
 
-    metrics[f"{split}_samples"] = min(max_predict_samples, len(predict_dataset))
-    metrics[f"{split}_emissions"] = test_emissions
+    all_pred_dicts = []
+    for i in range(len(logits)):
+        inst_id = predict_dataset["id"][i].split(".")[0]
+        value = "YES" if preds[i] == 1 else "NO"
+        pred_dict = {"test_case": "EXIST2025", "id": inst_id, "value": value}
+        if split != "test_challenge":
+            pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
+            
+        all_pred_dicts.append(pred_dict)
 
-    # trainer.log_metrics(split, metrics)
-    trainer.save_metrics(split, metrics)
-
-    predictions = predict_results.predictions
-
-    output_prediction_file = os.path.join(training_args.output_dir, f"generated_{split}_set.txt")
+    output_prediction_file = os.path.join(training_args.output_dir, f"generated_{split}_set.json")
+    with open(output_prediction_file, 'w', encoding='utf-8') as f:
+        json.dump(all_pred_dicts, f, ensure_ascii=False, indent=4)
     
-    with open(output_prediction_file, 'w') as file:
-        # Write each element of the list on a new line
-        for item in predictions:
-            file.write(f"{item}\n")
-    
-    return metrics
+    if split != "test_challenge":
+
+        metrics = predict_results.metrics
+
+        metrics[f"{split}_samples"] = min(max_predict_samples, len(predict_dataset))
+        metrics[f"{split}_emissions"] = test_emissions
+
+        # trainer.log_metrics(split, metrics)
+        trainer.save_metrics(split, metrics)
+
+        
+        return metrics
+
 
 def get_model(model_name, model_kwargs):
     if any(substring in model_name for substring in model_constructors):
@@ -107,6 +119,7 @@ def get_model(model_name, model_kwargs):
         model = AutoModelForSequenceClassification.from_pretrained(model_name, **model_kwargs)
     
     return model
+
 
 def compute_metrics(p: EvalPrediction):
     logits = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions

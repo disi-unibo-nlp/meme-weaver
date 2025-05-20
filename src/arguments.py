@@ -108,6 +108,14 @@ class DataTrainingArguments:
 
         default=None, metadata={"help": "The split of the dataset to use (train, test, validation)."}
     )
+    save_inference: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to save the inference results."
+            )
+        },
+    )
 
 
 @dataclass

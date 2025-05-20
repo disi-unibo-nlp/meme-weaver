@@ -125,6 +125,7 @@ def main():
     config.apply_ffw = model_args.apply_ffw
     config.output_dir = training_args.output_dir
     config.batch_size = training_args.per_device_eval_batch_size
+    config.image_caption = data_args.image_caption
 
     if model_args.checkpoint_path is not None:
         checkpoint_folder = next(folder for folder in os.listdir(model_args.checkpoint_path) if folder.startswith("checkpoint-"))
@@ -165,6 +166,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
     )
+    import pdb; pdb.set_trace()
 
     # Load feature_extractor, in this script we only use this to get the mean and std for normalization.
     feature_extractor = AutoFeatureExtractor.from_pretrained(
@@ -206,6 +208,7 @@ def main():
             captions = [inp + "[CPT]" + cpt  for inp, cpt in zip(captions, examples[data_args.image_caption])]
 
         text_inputs = tokenizer(captions, max_length=tokenizer.model_max_length, padding="max_length", truncation=True)
+    
         examples["input_ids"] = text_inputs.input_ids
         examples["attention_mask"] = text_inputs.attention_mask
         examples["label"] = [caption for caption in examples[data_args.target_column]]
@@ -214,13 +217,13 @@ def main():
     def preprocess_train(example_batch):
         """Apply train_transforms across a batch."""
         example_batch["pixel_values"] = [
-            train_transforms(image.convert("RGB")) for image in example_batch["image_path"]
+            train_transforms(image.convert("RGB")) for image in example_batch["image"]
         ]
         return example_batch
 
     def preprocess_val(example_batch):
         """Apply val_transforms across a batch."""
-        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch["image_path"]]
+        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch["image"]]
         return example_batch
 
     if training_args.do_train:
