@@ -34,8 +34,7 @@ def prepare_df(df, csv, root, caption_csv_id, prompts):
     return df
 
 
-def process_exist_2024():
-
+def get_exist_data(data_path, translator, split):
     def translate_text(text):
 
         return translator.translate(text, dest="en", src='es').text
@@ -46,26 +45,12 @@ def process_exist_2024():
         # If the number of YES is greater than or equal to half the total, return 1 (covers tie as well)
         return 1 if yes_count >= len(labels) / 2 else 0
 
-    translator = Translator()
-    tqdm.pandas()
-
-    features = Features({
-        "id": Value("string"),
-        "lang": Value("string"),
-        "text": Value("string"),
-        "text_en": Value("string"),
-        f'caption_promptA': Value("string"),
-        f'caption_promptB': Value("string"),
-        "hard_label_task4": Value("int8"),
-        "image": Image()  # This will ensure that image data is handled correctly.
-    })
-
-    data_path = os.path.join("exist2024_memes_dataset", "training", "EXIST2024_training.json")
     with open(data_path, 'r', encoding='utf-8') as file:
         data_labelled = json.load(file)
 
     df_labelled  = pd.DataFrame.from_dict(data_labelled, orient='index')
-    df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
+    if split == "training":
+        df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
     df_labelled = df_labelled.rename(columns={"meme": "id"})
 
     if not "text_en" in df_labelled.columns:
@@ -86,31 +71,63 @@ def process_exist_2024():
     caption_csv = pd.read_csv(os.path.join("data", args.caption_model,  f'exist.csv'))
     caption_csv['meme_id'] = caption_csv['meme_id'].astype(str)
 
-    path_to_meme = os.path.join("exist2024_memes_dataset", "training", "memes")
+    path_to_meme = os.path.join("exist2024_memes_dataset", split, "memes")
     prepare_df(df_labelled, caption_csv, path_to_meme, "id_EXIST", ('promptA', 'promptB'))
-
-    df_labelled = df_labelled[["id", "lang", "text", 'text_en', "hard_label_task4", "image", "caption_promptA", "caption_promptB"]]
+    if split == "training":
+        df_labelled = df_labelled[["id", "lang", "text", 'text_en', "hard_label_task4", "image", "caption_promptA", "caption_promptB"]]
+    else:
+        df_labelled = df_labelled[["id", "lang", "text", 'text_en', "image", "caption_promptA", "caption_promptB"]]
 
     df_shuffled = df_labelled.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    n = len(df_shuffled)
+    return df_shuffled
+
+
+
+def process_exist_2024():
+
+    translator = Translator()
+    tqdm.pandas()
+
+    features = Features({
+        "id": Value("string"),
+        "lang": Value("string"),
+        "text": Value("string"),
+        "text_en": Value("string"),
+        f'caption_promptA': Value("string"),
+        f'caption_promptB': Value("string"),
+        "hard_label_task4": Value("int8"),
+        "image": Image()  # This will ensure that image data is handled correctly.
+    })
+
+    data_path_experiments = os.path.join("exist2024_memes_dataset", "training", "EXIST2024_training.json")
+    df_experiments = get_exist_data(data_path_experiments, translator, "training")
+
+    n = len(df_experiments)
     n_train = int(0.8 * n)
     n_val = int(0.1 * n)  # for validation
 
     # Split the DataFrame
-    train_df = df_shuffled.iloc[:n_train]
-    val_df = df_shuffled.iloc[n_train:n_train + n_val]
-    test_df = df_shuffled.iloc[n_train + n_val:]
+    train_df = df_experiments.iloc[:n_train]
+    val_df = df_experiments.iloc[n_train:n_train + n_val]
+    test_df = df_experiments.iloc[n_train + n_val:]
 
     dataset_train = Dataset.from_pandas(train_df, features=features)
     dataset_val = Dataset.from_pandas(val_df, features=features)
     dataset_test = Dataset.from_pandas(test_df, features=features)
+
+    # add challenge split
+    data_path_challenge = os.path.join("exist2024_memes_dataset", "test", "EXIST2024_test_clean.json")
+    df_challenge = get_exist_data(data_path_challenge, translator, "test")
+
+    test_challenge_df = Dataset.from_pandas(df_challenge, features=features)
 
     # Create a DatasetDict with your splits.
     dataset = DatasetDict({
         "train": dataset_train,
         "validation": dataset_val,
         "test": dataset_test,
+        "test_challenge": test_challenge_df,
     })
 
     # Now, push the dataset to your Hugging Face Hub repository.
