@@ -45,12 +45,18 @@ def get_exist_data(data_path, translator, split):
         # If the number of YES is greater than or equal to half the total, return 1 (covers tie as well)
         return 1 if yes_count >= len(labels) / 2 else 0
 
+    def soft_labels(labels):
+        # Count the number of "YES" responses
+        yes_count = labels.count('YES')
+        return yes_count / len(labels)
+
     with open(data_path, 'r', encoding='utf-8') as file:
         data_labelled = json.load(file)
 
     df_labelled  = pd.DataFrame.from_dict(data_labelled, orient='index')
     if split == "training":
         df_labelled['hard_label_task4'] = df_labelled['labels_task4'].apply(majority_vote)
+        df_labelled["soft_label_task4"] = df_labelled['labels_task4'].apply(soft_labels)
     df_labelled = df_labelled.rename(columns={"meme": "id"})
 
     if not "text_en" in df_labelled.columns:
@@ -74,7 +80,7 @@ def get_exist_data(data_path, translator, split):
     path_to_meme = os.path.join("exist2024_memes_dataset", split, "memes")
     prepare_df(df_labelled, caption_csv, path_to_meme, "id_EXIST", ('promptA', 'promptB'))
     if split == "training":
-        df_labelled = df_labelled[["id", "lang", "text", 'text_en', "hard_label_task4", "image", "caption_promptA", "caption_promptB"]]
+        df_labelled = df_labelled[["id", "lang", "text", 'text_en', "soft_label_task4", "hard_label_task4", "image", "caption_promptA", "caption_promptB"]]
     else:
         df_labelled = df_labelled[["id", "lang", "text", 'text_en', "image", "caption_promptA", "caption_promptB"]]
 
@@ -97,6 +103,7 @@ def process_exist_2024():
         f'caption_promptA': Value("string"),
         f'caption_promptB': Value("string"),
         "hard_label_task4": Value("int8"),
+        "soft_label_task4": Value("float32"),
         "image": Image()  # This will ensure that image data is handled correctly.
     })
 
@@ -187,7 +194,6 @@ def main():
         process_mami()
     else:
         raise ValueError("Dataset not supported")
-
 
 
 if __name__ == "__main__":
