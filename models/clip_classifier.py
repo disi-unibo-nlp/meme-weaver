@@ -162,6 +162,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         # self.classifier = ClipClassificationHead(config)
 
         self.loss_fct = nn.CrossEntropyLoss()
+        self.soft_labels = config.soft_labels
 
         self.num_text_gcn_layers = config.num_text_gcn_layers
         self.num_image_gcn_layers = config.num_image_gcn_layers
@@ -406,11 +407,16 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
                              "image_embeds": image_embeds.cpu(), 
                              "text_embeds": text_embeds.cpu(),
                              "logits": logits.cpu()}, f)
+        
+        if self.soft_labels:
+            logits = logits.softmax(dim=1)
 
         loss = None
-        import pdb; pdb.set_trace()
         if labels is not None:
-            loss = self.loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            if self.soft_labels:
+                labels = torch.stack([1 - labels, labels], dim=1)
+
+            loss = self.loss_fct(logits, labels)
 
         if not return_dict:
             output = (logits, text_embeds, image_embeds, text_outputs, vision_outputs)

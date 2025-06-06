@@ -106,11 +106,10 @@ def main():
 
 
     column_names = dataset["train"].column_names
-    labels = list(set(dataset["train"][data_args.target_column]))
 
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=len(labels),
+        num_labels=2, # TODO make the number of labels dynamic
         cache_dir="../llms",
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
@@ -126,6 +125,7 @@ def main():
     config.output_dir = training_args.output_dir
     config.batch_size = training_args.per_device_eval_batch_size
     config.image_caption = data_args.image_caption
+    config.soft_labels = True if "soft" in data_args.target_column else False
 
     if model_args.checkpoint_path is not None:
         checkpoint_folder = next(folder for folder in os.listdir(model_args.checkpoint_path) if folder.startswith("checkpoint-"))
@@ -166,7 +166,6 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
     )
-    import pdb; pdb.set_trace()
 
     # Load feature_extractor, in this script we only use this to get the mean and std for normalization.
     feature_extractor = AutoFeatureExtractor.from_pretrained(
@@ -237,7 +236,7 @@ def main():
         train_dataset = train_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
@@ -263,7 +262,7 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
             load_from_cache_file=False,
             desc="Running tokenizer on validation dataset",
         )
@@ -286,7 +285,7 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
             load_from_cache_file=False,
             desc="Running tokenizer on test dataset",
         )
@@ -346,7 +345,7 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         data_collator=collate_fn,
         optimizers=optimizers,
-        compute_metrics=compute_metrics,
+        compute_metrics=None if config.soft_labels else compute_metrics,
     )
 
     # 9. Training
@@ -376,7 +375,7 @@ def main():
         max_eval_samples = (
             data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         )
-        eval_metrics = predict_class(trainer, eval_dataset, max_eval_samples, training_args, "eval")
+        eval_metrics = predict_class(trainer, eval_dataset, max_eval_samples, training_args, "eval", data_args.target_column)
         wandb.log(eval_metrics)
     
     if training_args.do_predict:
@@ -384,7 +383,7 @@ def main():
         max_predict_samples = (
         data_args.max_predict_samples if data_args.max_predict_samples is not None else len(test_dataset)
         )
-        predict_metrics = predict_class(trainer, test_dataset, max_predict_samples, training_args, "predict")
+        predict_metrics = predict_class(trainer, test_dataset, max_predict_samples, training_args, "predict", data_args.target_column)
         wandb.log(predict_metrics)
 
 

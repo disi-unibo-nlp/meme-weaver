@@ -5,6 +5,7 @@ import os
 import math
 import json
 import torch
+import torch.nn as nn
 import numpy as np
 from torch.nn import init
 from scipy.special import softmax
@@ -17,7 +18,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from transformers import AutoModelForSequenceClassification,EvalPrediction
+from transformers import AutoModelForSequenceClassification, EvalPrediction
 from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 # from models.modernbert_classifier import ModernBertForSequenceClassification
 from models.llama_classifier import LlamaForSequenceClassification
@@ -84,10 +85,16 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     all_pred_dicts = []
     for i in range(len(logits)):
         inst_id = predict_dataset["id"][i].split(".")[0]
-        value = "YES" if preds[i] == 1 else "NO"
+        if target_column == "soft_label_task4":
+            yes_prob = logits[i][1].item() 
+            no_prob = 1 - yes_prob
+            value = {"NO": no_prob, "YES": yes_prob}
+        else:
+            value = "YES" if preds[i] == 1 else "NO" 
+
         pred_dict = {"test_case": "EXIST2025", "id": inst_id, "value": value}
         # if split != "test_challenge":
-        #     pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
+        #    pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
             
         all_pred_dicts.append(pred_dict)
 
@@ -102,10 +109,8 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
         metrics[f"{split}_samples"] = min(max_predict_samples, len(predict_dataset))
         metrics[f"{split}_emissions"] = test_emissions
 
-        # trainer.log_metrics(split, metrics)
         trainer.save_metrics(split, metrics)
 
-        
         return metrics
 
 
@@ -121,9 +126,10 @@ def get_model(model_name, model_kwargs):
     return model
 
 
-def compute_metrics(p: EvalPrediction):
-    logits = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
-    labels = p.label_ids
+def compute_metrics(output: EvalPrediction):
+    logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
+    labels = output.label_ids
+
 
     preds = np.argmax(logits, axis=1)
     probs = softmax(logits, axis=1)[:, 1]

@@ -90,10 +90,9 @@ def main():
 
     normalize = Normalize(mean=feature_extractor.image_mean, std=feature_extractor.image_std)
 
-    labels = list(set(raw_datasets["train"][data_args.target_column]))
     config = AutoConfig.from_pretrained(
         model_args.model_name_or_path,
-        num_labels=len(labels),
+        num_labels=2, # TODO make it dynamic
         cache_dir="../llms",
         trust_remote_code=True,
     )
@@ -129,6 +128,7 @@ def main():
     config.output_dir = config_json["output_dir"]
     config.apply_ffw = config_json["apply_ffw"]
     config.image_caption = config_json["image_caption"]
+    config.soft_labels = config_json["soft_labels"]
     config.save_affinity = model_args.save_affinity
     config.batch_size = training_args.per_device_eval_batch_size
 
@@ -163,7 +163,7 @@ def main():
         if training_args.per_device_eval_batch_size != -1
         else range(1, 200)
     )
-    metrics_function = None if data_args.save_inference else compute_metrics 
+    metrics_function = None if data_args.save_inference or config.soft_labels else compute_metrics 
 
     for batch_size in batch_sizes:
 
