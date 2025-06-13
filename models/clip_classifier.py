@@ -12,9 +12,6 @@ from transformers.utils import (
     ModelOutput,
 )
 
-import torch.nn.init as init
-from transformers.activations import ACT2FN                           
-
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from transformers.models.clip.configuration_clip import CLIPConfig
@@ -33,6 +30,7 @@ from transformers.models.clip.modeling_clip import (
 )
 
 from models.custom_modules import gcn_map
+from models.modality_fusers import fuser_map
 
 
 @dataclass
@@ -118,6 +116,25 @@ class ClipClassificationHead(nn.Module):
         return layer_output
 
 
+class CrossModalAttention(nn.Module):
+    def __init__(self, feat_dim):
+        super().__init__()
+        self.query_lin = nn.Linear(feat_dim, feat_dim)
+        self.key_lin   = nn.Linear(feat_dim, feat_dim)
+        self.value_lin = nn.Linear(feat_dim, feat_dim)
+        self.feat_dim = feat_dim
+
+    def forward(self, t, v):
+        # t: (batch, feat_dim), v: (batch, num_regions, feat_dim)
+        q = self.query_lin(t).unsqueeze(1)      # (batch, 1, feat_dim)
+        k = self.key_lin(v)                     # (batch, num_regions, feat_dim)
+        v_val = self.value_lin(v)               # (batch, num_regions, feat_dim)
+        attn = torch.softmax(q @ k.transpose(-2,-1) / self.feat_dim**0.5, dim=-1)
+        attended = attn @ v_val                 # (batch, 1, feat_dim)
+        attended = attended.squeeze(1)          # (batch, feat_dim)
+        fused = torch.cat([t, attended], dim=-1)  # (batch, 2*feat_dim)
+        return fused
+
 
 
 @add_start_docstrings(CLIP_START_DOCSTRING)
@@ -192,6 +209,8 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.output_dir = config.output_dir
         self.batch_size = config.batch_size
         self.save_affinity = config.save_affinity
+
+        self.modality_fuser = fuser_map[config.modality_fuser](config)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -384,7 +403,8 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         text_embeds, R_norm_text = self.apply_gcn(text_embeds, self.text_gcn_layers)
 
         # Multimodal fusion (concatenation in this case)
-        fused_features = torch.cat((text_embeds, image_embeds), dim=-1)
+
+        fused_features = self.modality_fuser(text_embeds, image_embeds)
 
         # Apply GCN layers (and optional feed-forward) to the fused features.
         fused_features_upd, R_norm = self.apply_gcn(fused_features, self.rs_gcn_layers)

@@ -5,8 +5,8 @@ import os
 import math
 import json
 import torch
-import torch.nn as nn
 import numpy as np
+import pandas as pd
 from torch.nn import init
 from scipy.special import softmax
 from codecarbon import EmissionsTracker
@@ -84,15 +84,13 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
 
     all_pred_dicts = []
     for i in range(len(logits)):
-        inst_id = predict_dataset["id"][i].split(".")[0]
+        inst_id = predict_dataset[training_args.id_column][i].split(".")[0]
         if target_column == "soft_label_task4":
-            yes_prob = logits[i][1].item() 
-            no_prob = 1 - yes_prob
-            value = {"NO": no_prob, "YES": yes_prob}
+            value = logits[i][1].item() 
         else:
-            value = "YES" if preds[i] == 1 else "NO" 
+            value = int(preds[i])
 
-        pred_dict = {"test_case": "EXIST2025", "id": inst_id, "value": value}
+        pred_dict = {"id": inst_id, "value": value}
         # if split != "test_challenge":
         #    pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
             
@@ -126,29 +124,101 @@ def get_model(model_name, model_kwargs):
     return model
 
 
+def evaluate_thresholds(probs, labels, num=50):
+    """
+    Evaluate metrics at various thresholds and return a DataFrame of results
+    and the best result by accuracy.
+    """
+    thresholds = np.linspace(0, 1, num=num)
+    results = []
+    for x in thresholds:
+        preds = (probs > x).astype(int)
+        results.append({
+            'threshold': round(x, 4),
+            'precision_macro': round(100 * precision_score(labels, preds, average='macro', zero_division=0), 2),
+            'recall_macro': round(100 * recall_score(labels, preds, average='macro', zero_division=0), 2),
+            'F1_macro': round(100 * f1_score(labels, preds, average='macro', zero_division=0), 2),
+            'accuracy': round(100 * accuracy_score(labels, preds), 2),
+            'roc_auc': round(100 * roc_auc_score(labels, probs), 2),
+        })
+    df = pd.DataFrame(results)
+    best = df.loc[df['accuracy'].idxmax()].to_frame().T.iloc[0].to_dict()
+    
+    return best
+
+
+
 def compute_metrics(output: EvalPrediction):
     logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
     labels = output.label_ids
 
 
-    preds = np.argmax(logits, axis=1)
+    # preds = np.argmax(logits, axis=1)
     probs = softmax(logits, axis=1)[:, 1]
 
-    result = {
-        "precision_macro": round(100 * precision_score(labels, preds, average='macro'), 2),
-        "recall_macro": round(100 * recall_score(labels, preds, average='macro'), 2),
-        "F1_macro": round(100 * f1_score(labels, preds, average='macro'), 2),
-        "accuracy": round(100 * accuracy_score(labels, preds), 2),
-        "roc_auc": round(100 * roc_auc_score(labels, probs), 2),
-    }
-    
-    return result
+    best_threshold = evaluate_thresholds(probs, labels, num=100)  
+
+    return best_threshold
 
 
 def init_gcn_layer(layer):
     """Apply Xavier init to the four core weight tensors of a single GCN layer."""
     for submodule in (layer.phi, layer.psi_param, layer.W_g, layer.W_r):
         init.xavier_uniform_(submodule.weight)
+
+
+def set_config_from_args(config, model_args, training_args, data_args, config_json=None):
+    """
+    Populate a configuration object from model, training, and data argument namespaces.
+
+    Args:
+        config: An object with attributes to be set.
+        model_args: Namespace containing model-specific arguments.
+        training_args: Namespace containing training-specific arguments.
+        data_args: Namespace containing data-specific arguments.
+
+    Returns:
+        The updated config object.
+    """
+    if config_json is None:
+        # Training-time initialization
+        # GCN layer settings
+        config.num_gcn_layers = model_args.num_gcn_layers
+        config.num_text_gcn_layers = model_args.num_text_gcn_layers
+        config.num_image_gcn_layers = model_args.num_image_gcn_layers
+        config.custom_gcn = model_args.custom_gcn
+        config.save_affinity = model_args.save_affinity
+
+        # Feature fusion and output settings
+        config.apply_ffw = model_args.apply_ffw
+        config.modality_fuser = model_args.modality_fuser
+
+        # Training output and batch size
+        config.output_dir = training_args.output_dir
+        config.batch_size = training_args.per_device_eval_batch_size
+
+        config.image_caption = data_args.image_caption
+        config.soft_labels = True if "soft" in data_args.target_column else False
+
+    else:
+        # Inference-time initialization from JSON
+        config.num_gcn_layers = config_json["num_gcn_layers"]
+        config.num_text_gcn_layers = config_json["num_text_gcn_layers"]
+        config.num_image_gcn_layers = config_json["num_image_gcn_layers"]
+        config.custom_gcn = config_json["custom_gcn"]
+        config.modality_fuser = config_json['modality_fuser']
+
+        # Output and inference settings
+        config.output_dir = config_json.get("output_dir")
+        config.apply_ffw = config_json.get("apply_ffw")
+        config.image_caption = config_json.get("image_caption")
+        config.soft_labels = config_json.get("soft_labels")
+
+        # Use values from model_args / training_args when present
+        config.save_affinity = model_args.save_affinity
+        config.batch_size = training_args.per_device_eval_batch_size
+
+    return config
 
 
 model_constructors = {

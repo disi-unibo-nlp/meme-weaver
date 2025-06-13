@@ -45,9 +45,10 @@ from torchvision.transforms import (
 )
 
 
-from utils import compute_metrics, predict_class, init_gcn_layer
+from utils import compute_metrics, predict_class, set_config_from_args
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
+from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
 
 # We use torchvision for faster image pre-processing. The transforms are implemented as nn.Module,
 # so we jit it to be faster.
@@ -78,6 +79,7 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    training_args.id_column = data_args.id_column
 
     numpy.random.seed(seed=training_args.seed)
     random.seed(training_args.seed)
@@ -107,25 +109,23 @@ def main():
 
     column_names = dataset["train"].column_names
 
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=2, # TODO make the number of labels dynamic
-        cache_dir="../llms",
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=True,
+    if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
+        config = MultiModalConfig(
+        text_model_name_or_path=model_args.text_model_name_or_path,
+        vision_model_name_or_path=model_args.vision_model_name_or_path,
     )
     
-    config.num_gcn_layers = model_args.num_gcn_layers
-    config.num_text_gcn_layers = model_args.num_text_gcn_layers
-    config.num_image_gcn_layers = model_args.num_image_gcn_layers
-    config.custom_gcn = model_args.custom_gcn
-    config.save_affinity = model_args.save_affinity
-    config.apply_ffw = model_args.apply_ffw
-    config.output_dir = training_args.output_dir
-    config.batch_size = training_args.per_device_eval_batch_size
-    config.image_caption = data_args.image_caption
-    config.soft_labels = True if "soft" in data_args.target_column else False
+    else:
+        config = AutoConfig.from_pretrained(
+            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            num_labels=2, # TODO make the number of labels dynamic
+            cache_dir="../llms",
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=True,
+        )
+    
+    config = set_config_from_args(config, model_args, training_args, data_args)
 
     if model_args.checkpoint_path is not None:
         checkpoint_folder = next(folder for folder in os.listdir(model_args.checkpoint_path) if folder.startswith("checkpoint-"))
@@ -135,14 +135,19 @@ def main():
     else:
         checkpoint_path = model_args.model_name_or_path
     
-    model = CLIPForMultimodalClassification.from_pretrained(
-        checkpoint_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        config=config,
-    )
+    if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
 
+        model = CustomMultiModalForClassification(config)
+    
+    else:
+        model = CLIPForMultimodalClassification.from_pretrained(
+            checkpoint_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            config=config,
+        )
+    
     # try to init parameters in a different way
     if config.num_gcn_layers > 0 and model_args.checkpoint_path is None:
         init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
@@ -163,13 +168,16 @@ def main():
 
     for param in model.parameters(): param.data = param.data.contiguous()
 
+    tokenizer_loader = model_args.text_model_name_or_path if model_args.text_model_name_or_path is not None else model_args.model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.model_name_or_path, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
+        tokenizer_loader, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
     )
 
+
+    future_extractor_loader = model_args.vision_model_name_or_path if model_args.vision_model_name_or_path is not None else model_args.model_name_or_path
     # Load feature_extractor, in this script we only use this to get the mean and std for normalization.
     feature_extractor = AutoFeatureExtractor.from_pretrained(
-        model_args.model_name_or_path,
+        future_extractor_loader,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
@@ -216,13 +224,13 @@ def main():
     def preprocess_train(example_batch):
         """Apply train_transforms across a batch."""
         example_batch["pixel_values"] = [
-            train_transforms(image.convert("RGB")) for image in example_batch["image"]
+            train_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]
         ]
         return example_batch
 
     def preprocess_val(example_batch):
         """Apply val_transforms across a batch."""
-        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch["image"]]
+        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]]
         return example_batch
 
     if training_args.do_train:
@@ -236,7 +244,7 @@ def main():
         train_dataset = train_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
@@ -262,7 +270,7 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
             load_from_cache_file=False,
             desc="Running tokenizer on validation dataset",
         )
@@ -285,7 +293,7 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
+            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
             load_from_cache_file=False,
             desc="Running tokenizer on test dataset",
         )

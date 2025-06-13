@@ -25,7 +25,7 @@ from torchvision.transforms import (
 )
 
 
-from src.utils import compute_metrics, predict_class
+from src.utils import compute_metrics, predict_class, set_config_from_args
 from src.arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
 
@@ -121,16 +121,7 @@ def main():
     with open(path_config_json, "r") as f:
         config_json = json.load(f)
         
-    config.num_gcn_layers = config_json["num_gcn_layers"]
-    config.num_text_gcn_layers = config_json["num_text_gcn_layers"]
-    config.num_image_gcn_layers = config_json["num_image_gcn_layers"]
-    config.custom_gcn = config_json["custom_gcn"]
-    config.output_dir = config_json["output_dir"]
-    config.apply_ffw = config_json["apply_ffw"]
-    config.image_caption = config_json["image_caption"]
-    config.soft_labels = config_json["soft_labels"]
-    config.save_affinity = model_args.save_affinity
-    config.batch_size = training_args.per_device_eval_batch_size
+    config = set_config_from_args(config, model_args, data_args, training_args, config_json)
 
     column_names = raw_datasets[data_args.split].column_names
     split_dataset = split_dataset.map(
@@ -161,12 +152,13 @@ def main():
     batch_sizes = (
         [training_args.per_device_eval_batch_size]
         if training_args.per_device_eval_batch_size != -1
-        else range(1, 200)
+        else range(1, 120)
     )
     metrics_function = None if data_args.save_inference or config.soft_labels else compute_metrics 
 
     for batch_size in batch_sizes:
 
+        print(f"Running inference with batch size: {batch_size}")
         training_args.per_device_eval_batch_size = batch_size
         trainer = Trainer(
             model=model,
@@ -192,6 +184,5 @@ def main():
                 json.dump(metrics, f, indent=4)
 
         
-
 if __name__ == "__main__":
     main()
