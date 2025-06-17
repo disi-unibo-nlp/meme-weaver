@@ -45,7 +45,7 @@ from torchvision.transforms import (
 )
 
 
-from utils import compute_metrics, predict_class, set_config_from_args
+from utils import compute_metrics, predict_class, set_config_from_args, model_xavier_init
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
 from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
@@ -147,27 +147,9 @@ def main():
             use_auth_token=True if model_args.use_auth_token else None,
             config=config,
         )
+
+    model_xavier_init(config, model, model_args)
     
-    # try to init parameters in a different way
-    if config.num_gcn_layers > 0 and model_args.checkpoint_path is None:
-        init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
-        init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
-        init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
-        init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
-
-    if config.num_text_gcn_layers > 0 and model_args.checkpoint_path is None:
-        init.xavier_uniform_(model.text_gcn_layers[0].phi.weight)
-        init.xavier_uniform_(model.text_gcn_layers[0].psi_param.weight)
-        init.xavier_uniform_(model.text_gcn_layers[0].W_g.weight)
-        init.xavier_uniform_(model.text_gcn_layers[0].W_r.weight)
-    if config.num_image_gcn_layers > 0 and model_args.checkpoint_path is None:
-        init.xavier_uniform_(model.image_gcn_layers[0].phi.weight)
-        init.xavier_uniform_(model.image_gcn_layers[0].psi_param.weight)
-        init.xavier_uniform_(model.image_gcn_layers[0].W_g.weight)
-        init.xavier_uniform_(model.image_gcn_layers[0].W_r.weight)
-
-    for param in model.parameters(): param.data = param.data.contiguous()
-
     tokenizer_loader = model_args.text_model_name_or_path if model_args.text_model_name_or_path is not None else model_args.model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_loader, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer

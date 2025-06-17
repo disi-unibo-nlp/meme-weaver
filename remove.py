@@ -8,6 +8,8 @@ FOLDERS_TO_KEEP = ["xlm-roberta-large_batch140_10eps_1gcn",
                    "clip-vit-large_batch64_5e-6lr_1gcn_xuinit",
                    "clip-vit-large_batch20_5e-6lr_1gcn_xuinit",
                    "clip-vit-large_batch20_5e-6lr",
+                   "clip-vit-large_batch20_5e-6lr_1gcn_xuinit_mfb",
+                   "custom_multimodal_xlm-roberta-large_vit-large-patch32-384_batch20_1gcn_xuinit_promptB",
                    ]
 
 def get_folders_in_path(directory):

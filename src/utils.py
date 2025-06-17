@@ -220,6 +220,41 @@ def set_config_from_args(config, model_args, training_args, data_args, config_js
 
     return config
 
+def model_xavier_init(config, model, model_args):
+    # try to init parameters in a different way
+
+    if model_args.checkpoint_path is None:
+        if config.num_gcn_layers > 0:
+            init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
+
+        if config.num_text_gcn_layers > 0:
+            init.xavier_uniform_(model.text_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].W_r.weight)
+        if config.num_image_gcn_layers > 0:
+            init.xavier_uniform_(model.image_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].W_r.weight)
+        
+        if config.modality_fuser == "mfb":
+            init.xavier_uniform_(model.modality_fuser.lin_text.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_image.weight)
+        elif config.modality_fuser == "gmu":
+            init.xavier_uniform_(model.modality_fuser.lin_t.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_v.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_gate.weight)
+        elif config.modality_fuser == "cross_attn":
+            init.xavier_uniform_(model.modality_fuser.query_lin.weight)
+            init.xavier_uniform_(model.modality_fuser.key_lin.weight)
+            init.xavier_uniform_(model.modality_fuser.value_lin.weight)
+
+    for param in model.parameters(): param.data = param.data.contiguous()
+
 
 model_constructors = {
     "xlm-roberta": XLMRobertaForSequenceClassification,

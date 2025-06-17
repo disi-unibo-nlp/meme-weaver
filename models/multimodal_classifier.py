@@ -1,8 +1,11 @@
 import torch
 import torch.nn as nn
-from models.custom_modules import gcn_map
+
 from transformers import AutoModel, AutoConfig, PreTrainedModel, PretrainedConfig
 from models.modular_modernbert import ModernBertModel, ModernBertConfig
+
+from models.custom_modules import gcn_map
+from models.modality_fusers import fuser_map
 
 
 class MultiModalConfig(PretrainedConfig):
@@ -91,6 +94,8 @@ class CustomMultiModalForClassification(PreTrainedModel):
         self.batch_size = config.batch_size
         self.save_affinity = config.save_affinity
 
+        self.modality_fuser = fuser_map[config.modality_fuser](config)
+
 
         self.post_init()  # initialize weights if needed
 
@@ -176,7 +181,8 @@ class CustomMultiModalForClassification(PreTrainedModel):
         # 5. Fuse by concatenation
         # if self.training and (torch.rand(1).item() < 0.5):
         #     image_feats = image_feats * 0.0
-        fused = torch.cat([text_feats, image_feats], dim=-1)  # (batch, 2*proj_dim)
+
+        fused = self.modality_fuser(text_feats, image_feats)
         
         # 6. fused GCN / FFN
         fused_upd, _ = self.apply_gcn(fused, self.rs_gcn_layers)

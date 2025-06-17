@@ -9,19 +9,18 @@ class CrossModalAttention(nn.Module):
         self.query_lin = nn.Linear(feat_dim, feat_dim)
         self.key_lin   = nn.Linear(feat_dim, feat_dim)
         self.value_lin = nn.Linear(feat_dim, feat_dim)
-        self.feat_dim = feat_dim
+        self.out_dim = feat_dim
 
     def forward(self, t, v):
-        # t: (batch, feat_dim), v: (batch, num_regions, feat_dim)
-        q = self.query_lin(t).unsqueeze(1)      # (batch, 1, feat_dim)
-        k = self.key_lin(v)                     # (batch, num_regions, feat_dim)
-        v_val = self.value_lin(v)               # (batch, num_regions, feat_dim)
-        attn = torch.softmax(q @ k.transpose(-2,-1) / self.feat_dim**0.5, dim=-1)
-        attended = attn @ v_val                 # (batch, 1, feat_dim)
-        attended = attended.squeeze(1)          # (batch, feat_dim)
-        fused = torch.cat([t, attended], dim=-1)  # (batch, 2*feat_dim)
+        q = self.query_lin(t).unsqueeze(1)      
+        k = self.key_lin(v)                     
+        v_val = self.value_lin(v)               
+        attn = torch.softmax(q @ k.transpose(-2,-1) / self.out_dim**0.5, dim=-1)
+        attended = attn @ v_val                 
+        attended = attended.squeeze(1)          
+        fused = torch.cat([t, attended], dim=-1)  
         return fused
-    
+       
 class MFB(nn.Module):
     def __init__(self, in_dim, out_dim, factor=5):
         super().__init__()
@@ -69,7 +68,6 @@ class ConcatFuser(nn.Module):
     def __init__(self):
         super().__init__()
 
-
     def forward(self, text_embeds, image_embeds):
         """
         Args:
@@ -83,7 +81,7 @@ class ConcatFuser(nn.Module):
 
 fuser_map = {
     'concat': lambda cfg: ConcatFuser(),
-    'mfb':    lambda cfg: MFB(cfg.projection_dim, cfg.projection_dim, factor=getattr(cfg, 'factor', 5)),
-    'gmu':    lambda cfg: GMU(cfg.projection_dim, cfg.projection_dim),
+    'mfb':    lambda cfg: MFB(cfg.projection_dim, cfg.projection_dim * 2, factor=getattr(cfg, 'factor', 1)),
+    'gmu':    lambda cfg: GMU(cfg.projection_dim, cfg.projection_dim * 2),
     'cross_attn': lambda cfg: CrossModalAttention(cfg.projection_dim),
 }
