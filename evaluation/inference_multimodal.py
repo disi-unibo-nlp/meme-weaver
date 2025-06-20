@@ -5,6 +5,7 @@ import os
 import json
 import torch
 import wandb
+from functools import partial
 from datasets import load_dataset
 
 from transformers import (
@@ -24,10 +25,10 @@ from torchvision.transforms import (
     ToTensor,
 )
 
-
-from src.utils import compute_metrics, predict_class, set_config_from_args
 from src.arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
+from src.utils import compute_metrics, predict_class, set_config_from_args, collate_fn
+from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
 
 
 def main():
@@ -50,19 +51,6 @@ def main():
         """Apply val_transforms across a batch."""
         example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]]
         return example_batch
-    
-    def collate_fn(examples):
-        pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
-        input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
-        attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
-        labels = None if data_args.save_inference else torch.tensor([example["labels"] for example in examples]) 
-        return {
-            "pixel_values": pixel_values,
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-        }
-
     
     wandb.init(mode="disabled")
 
@@ -122,12 +110,12 @@ def main():
         config_json = json.load(f)
         
     config = set_config_from_args(config, model_args, data_args, training_args, config_json)
-
+    not_remove_columns = [data_args.image_column, data_args.target_column, data_args.id_column]
     column_names = raw_datasets[data_args.split].column_names
     split_dataset = split_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
+            remove_columns=[col for col in column_names if col not in not_remove_columns],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
@@ -138,15 +126,22 @@ def main():
         batched=True,
         num_proc=data_args.preprocessing_num_workers,
         load_from_cache_file=False)
+    
 
+    if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
 
-    model = CLIPForMultimodalClassification.from_pretrained(
-        checkpoint_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        config=config,
-    )
+        model = CustomMultiModalForClassification.from_pretrained(checkpoint_path, config=config,)
+    
+    else:
+
+        model = CLIPForMultimodalClassification.from_pretrained(
+            checkpoint_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            config=config,
+        )
+        
     for param in model.parameters(): param.data = param.data.contiguous()
 
     batch_sizes = (
@@ -155,7 +150,9 @@ def main():
         else range(1, 120)
     )
     metrics_function = None if data_args.save_inference or config.soft_labels else compute_metrics 
-
+    collator = partial(collate_fn, id_column=data_args.id_column)
+    training_args.remove_unused_columns = False
+    
     for batch_size in batch_sizes:
 
         print(f"Running inference with batch size: {batch_size}")
@@ -167,7 +164,7 @@ def main():
             eval_dataset=None,
             compute_metrics=metrics_function,
             tokenizer=tokenizer,
-            data_collator=collate_fn,
+            data_collator=collator,
         )
 
         if data_args.save_inference:

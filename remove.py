@@ -2,11 +2,7 @@ import os
 import shutil
 import argparse
 
-FOLDERS_TO_KEEP = ["xlm-roberta-large_batch140_10eps_1gcn",
-                   "xlm-roberta-large_batch100_10eps_reprod_1gcn_seed45",
-                   "xlm-roberta-large_batch100_10eps_reprod_seed45",
-                   "clip-vit-large_batch64_5e-6lr_1gcn_xuinit",
-                   "clip-vit-large_batch20_5e-6lr_1gcn_xuinit",
+FOLDERS_TO_KEEP = [
                    "clip-vit-large_batch20_5e-6lr",
                    "clip-vit-large_batch20_5e-6lr_1gcn_xuinit_mfb",
                    "custom_multimodal_xlm-roberta-large_vit-large-patch32-384_batch20_1gcn_xuinit_promptB",
@@ -46,6 +42,7 @@ def main():
             
             if folder in FOLDERS_TO_KEEP:
                 continue
+
             # Specify the file path you want to delete
             file_path = os.path.join(args.output_dir, folder, "training_args.bin")
             remove_file(file_path)
@@ -53,14 +50,19 @@ def main():
             file_path = os.path.join(args.output_dir, folder, "model.safetensors")
             remove_file(file_path)
 
+            file_path = os.path.join(args.output_dir, folder, "tokenizer.json")
+            remove_file(file_path)
+
             file_path = os.path.join(args.output_dir, folder, "sentencepiece.bpe.model")
             remove_file(file_path)
             
             folder_path = os.path.join(args.output_dir, folder)
             try:
-                final_folder_path = os.path.join(folder_path, get_folders_in_path(folder_path)[0])
-                if "checkpoint" in final_folder_path:
-                    remove_folder(final_folder_path)
+                folders = get_folders_in_path(folder_path)
+                for folder in folders:
+                    final_folder_path = os.path.join(folder_path, folder)
+                    if "checkpoint" in final_folder_path:
+                        remove_folder(final_folder_path)
             except:
                 print("No checkpoint folder found")
             

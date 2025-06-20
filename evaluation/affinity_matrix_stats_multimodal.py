@@ -265,7 +265,7 @@ def main():
     color_map_pred = get_color_map(df, color_pred_pair)
 
     
-    output_path_features = os.path.join(output_path, "fused_features")
+    output_path_features = os.path.join(output_path, "correlation", "fused_features")
     os.makedirs(output_path_features, exist_ok=True)
 
     create_plot(df, "Fused Features Similarity", "features", output_path_features, color_map_mis, color_pred_pair)
@@ -276,7 +276,7 @@ def main():
     create_plot(df_both_incorrect, "Fused Features Similarity", "features_both_incorrect", output_path_features, color_map_mis, color_mis_pair)
     create_plot(df_mixed_outcome, "Fused Features Similarity", "features_mixed_outcome", output_path_features, color_map_mis, color_mis_pair)
 
-    output_path_features_upd = os.path.join(output_path, "fused_features_upd")
+    output_path_features_upd = os.path.join(output_path, "correlation", "fused_features_upd")
     os.makedirs(output_path_features_upd, exist_ok=True)
     create_plot(df, "Fused Features Updated Similarity", "features", output_path_features_upd, color_map_mis, color_pred_pair)
     create_plot(df_mixed_mis, "Fused Features Updated Similarity", "features_mix_mis", output_path_features_upd, color_map_pred, color_pred_pair)

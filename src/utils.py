@@ -43,6 +43,21 @@ def get_optimizer_and_scheduler(config, model, train_loader):
     return optimizer, scheduler
 
 
+def collate_fn(examples):
+    pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
+    input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
+    attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
+    labels = torch.tensor([example["labels"] for example in examples])
+    instance_ids = [example["instance_ids"] for example in examples]
+    return {
+        "pixel_values": pixel_values,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "instance_ids": instance_ids,
+    }
+
+
 def evaluate_model(model_output):
     '''Implementation for Task 4 in a soft-soft evaluation.
     '''
@@ -167,7 +182,7 @@ def init_gcn_layer(layer):
         init.xavier_uniform_(submodule.weight)
 
 
-def set_config_from_args(config, model_args, training_args, data_args, config_json=None):
+def set_config_from_args(config, model_args, data_args, training_args, config_json=None):
     """
     Populate a configuration object from model, training, and data argument namespaces.
 

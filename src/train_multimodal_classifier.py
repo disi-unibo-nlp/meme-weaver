@@ -16,8 +16,8 @@ import wandb
 import numpy
 import random
 
+from functools import partial
 from datasets import load_dataset
-import torch.nn.init as init
 from torchvision.transforms import CenterCrop, ConvertImageDtype, Normalize, Resize
 from torchvision.transforms.functional import InterpolationMode
 
@@ -45,7 +45,7 @@ from torchvision.transforms import (
 )
 
 
-from utils import compute_metrics, predict_class, set_config_from_args, model_xavier_init
+from utils import compute_metrics, predict_class, set_config_from_args, model_xavier_init, collate_fn
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
 from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
@@ -125,7 +125,7 @@ def main():
             trust_remote_code=True,
         )
     
-    config = set_config_from_args(config, model_args, training_args, data_args)
+    config = set_config_from_args(config, model_args, data_args, training_args)
 
     if model_args.checkpoint_path is not None:
         checkpoint_folder = next(folder for folder in os.listdir(model_args.checkpoint_path) if folder.startswith("checkpoint-"))
@@ -203,17 +203,35 @@ def main():
         examples["label"] = [caption for caption in examples[data_args.target_column]]
         return examples
     
-    def preprocess_train(example_batch):
-        """Apply train_transforms across a batch."""
-        example_batch["pixel_values"] = [
-            train_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]
+    def apply_transforms_train(examples):
+        pixel_values = [
+            train_transforms(img.convert("RGB"))
+            for img in examples[data_args.image_column]
         ]
-        return example_batch
-
-    def preprocess_val(example_batch):
-        """Apply val_transforms across a batch."""
-        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]]
-        return example_batch
+        return {
+            "input_ids":      examples["input_ids"],
+            "attention_mask": examples["attention_mask"],
+            "labels":         examples[data_args.target_column],
+            "pixel_values":   pixel_values,
+            "instance_ids": examples[data_args.id_column],
+        }
+    
+    def apply_transforms_val(examples):
+        pixel_values = [
+            val_transforms(img.convert("RGB"))
+            for img in examples[data_args.image_column]
+        ]
+        return {
+            "input_ids":      examples["input_ids"],
+            "attention_mask": examples["attention_mask"],
+            "labels":         examples[data_args.target_column],
+            "pixel_values":   pixel_values,
+            "instance_ids": examples[data_args.id_column],
+        }
+    
+    
+    not_remove_columns = [data_args.image_column, data_args.target_column, data_args.id_column]
+    
 
     if training_args.do_train:
         if "train" not in dataset:
@@ -226,19 +244,14 @@ def main():
         train_dataset = train_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
+            remove_columns=[col for col in column_names if col not in not_remove_columns],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
         )
 
-        train_dataset = train_dataset.map(  
-            preprocess_train,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            load_from_cache_file=False)
-
-        
+        # then tell datasets to apply image transforms at load time
+        train_dataset.set_transform(apply_transforms_train)
 
     if training_args.do_eval:
         if "validation" not in dataset:
@@ -252,16 +265,12 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
+            remove_columns=[col for col in column_names if col not in not_remove_columns],
             load_from_cache_file=False,
             desc="Running tokenizer on validation dataset",
         )
 
-        eval_dataset = eval_dataset.map(  
-            preprocess_val,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            load_from_cache_file=False)
+        eval_dataset.set_transform(apply_transforms_val)
 
     if training_args.do_predict:
         if "test" not in dataset:
@@ -275,16 +284,12 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, data_args.id_column]],
+            remove_columns=[col for col in column_names if col not in not_remove_columns],
             load_from_cache_file=False,
             desc="Running tokenizer on test dataset",
         )
 
-        test_dataset = test_dataset.map(  
-            preprocess_val,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            load_from_cache_file=False)
+        test_dataset.set_transform(apply_transforms_val)
     
     no_decay = ["bias", "LayerNorm.weight", "layer_norm.weight"]
     optimizer_grouped_parameters = [
@@ -309,24 +314,13 @@ def main():
         num_training_steps=max_train_steps
     )
     optimizers = (optimizer, lr_scheduler)
-
-    def collate_fn(examples):
-        pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
-        input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
-        attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
-        labels = torch.tensor([example["label"] for example in examples])
-        return {
-            "pixel_values": pixel_values,
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-        }
     
     n_steps = len(train_dataset)/training_args.per_device_train_batch_size * training_args.num_train_epochs
     training_args.eval_steps = n_steps // 8
     training_args.save_steps = n_steps // 8
     training_args.logging_steps = n_steps // 100
 
+    training_args.remove_unused_columns = False
     # 8. Initalize our trainer
     trainer = Trainer(
         model=model,

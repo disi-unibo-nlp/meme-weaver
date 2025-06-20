@@ -212,6 +212,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         self.modality_fuser = fuser_map[config.modality_fuser](config)
 
+
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -341,6 +342,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        instance_ids: Optional[list] = None, 
     ) -> Union[Tuple, CLIPOutput]:
         r"""
         Returns:
@@ -426,8 +428,12 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
                              'labels': labels.cpu(), 
                              "image_embeds": image_embeds.cpu(), 
                              "text_embeds": text_embeds.cpu(),
-                             "logits": logits.cpu()}, f)
+                             "logits": logits.cpu(),
+                             "instance_ids": instance_ids,   
+                             }
+                             , f)
         
+    
         if self.soft_labels:
             logits = logits.softmax(dim=1)
 
