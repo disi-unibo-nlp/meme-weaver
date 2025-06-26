@@ -45,7 +45,14 @@ from torchvision.transforms import (
 )
 
 
-from utils import compute_metrics, predict_class, set_config_from_args, model_xavier_init, collate_fn
+from utils import (compute_metrics,
+                   predict_class,
+                   set_config_from_args,
+                   model_xavier_init,
+                   collate_fn,
+                   preprocess_logits_for_metrics
+)
+
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
 from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
@@ -316,8 +323,8 @@ def main():
     optimizers = (optimizer, lr_scheduler)
     
     n_steps = len(train_dataset)/training_args.per_device_train_batch_size * training_args.num_train_epochs
-    training_args.eval_steps = n_steps // 8
-    training_args.save_steps = n_steps // 8
+    training_args.eval_steps = n_steps // data_args.eval_steps_factor
+    training_args.save_steps = n_steps // data_args.eval_steps_factor
     training_args.logging_steps = n_steps // 100
 
     training_args.remove_unused_columns = False
@@ -328,6 +335,7 @@ def main():
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
         data_collator=collate_fn,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         optimizers=optimizers,
         compute_metrics=None if config.soft_labels else compute_metrics,
     )

@@ -94,20 +94,19 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     predict_results = trainer.predict(predict_dataset, metric_key_prefix=split)
     test_emissions = test_tracker.stop()
 
-    logits = predict_results.predictions[0]
-    preds = np.argmax(logits, axis=1)
+    probs = predict_results.predictions
+    preds = (probs > predict_results.metrics[f"{split}_threshold"]).astype(int)
 
     all_pred_dicts = []
-    for i in range(len(logits)):
+    predict_dataset.reset_format()
+    for i in range(len(probs)):
         inst_id = predict_dataset[training_args.id_column][i].split(".")[0]
         if target_column == "soft_label_task4":
-            value = logits[i][1].item() 
+            value = probs[i].item() 
         else:
             value = int(preds[i])
 
         pred_dict = {"id": inst_id, "value": value}
-        # if split != "test_challenge":
-        #    pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
             
         all_pred_dicts.append(pred_dict)
 
@@ -162,17 +161,25 @@ def evaluate_thresholds(probs, labels, num=50):
     return best
 
 
+def preprocess_logits_for_metrics(logits, labels):
+    """
+    Convert raw model logits into a 1-D tensor of positive-class probabilities,
+    detached and moved to CPU so we don’t hold on to any GPU graph.
+    """
+    # If Trainer returned a tuple (loss, logits), grab logits:
+    logits = logits[0] if isinstance(logits, tuple) else logits
+    probs_pos = torch.softmax(logits, dim=-1)[:, 1]
 
-def compute_metrics(output: EvalPrediction):
-    logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
-    labels = output.label_ids
+    return probs_pos.detach().cpu()
 
 
-    # preds = np.argmax(logits, axis=1)
-    probs = softmax(logits, axis=1)[:, 1]
+def compute_metrics(eval_pred: EvalPrediction):
+    # eval_pred.predictions is now a 1-D numpy array of positive-class probs
+    probs = eval_pred.predictions
+    labels = eval_pred.label_ids
 
-    best_threshold = evaluate_thresholds(probs, labels, num=100)  
-
+    # run your threshold sweep
+    best_threshold = evaluate_thresholds(probs, labels, num=100)
     return best_threshold
 
 

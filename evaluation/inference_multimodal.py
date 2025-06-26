@@ -27,7 +27,7 @@ from torchvision.transforms import (
 
 from src.arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
-from src.utils import compute_metrics, predict_class, set_config_from_args, collate_fn
+from src.utils import compute_metrics, predict_class, set_config_from_args, collate_fn, preprocess_logits_for_metrics
 from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
 
 
@@ -47,10 +47,18 @@ def main():
         examples["labels"] = [label for label in examples[data_args.target_column]]
         return examples
     
-    def preprocess_val(example_batch):
-        """Apply val_transforms across a batch."""
-        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]]
-        return example_batch
+    def apply_transforms_val(examples):
+        pixel_values = [
+            val_transforms(img.convert("RGB"))
+            for img in examples[data_args.image_column]
+        ]
+        return {
+            "input_ids":      examples["input_ids"],
+            "attention_mask": examples["attention_mask"],
+            "labels":         examples[data_args.target_column],
+            "pixel_values":   pixel_values,
+            "instance_ids": examples[data_args.id_column],
+        }
     
     wandb.init(mode="disabled")
 
@@ -120,13 +128,8 @@ def main():
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
         )
-
-    split_dataset = split_dataset.map(  
-        preprocess_val,
-        batched=True,
-        num_proc=data_args.preprocessing_num_workers,
-        load_from_cache_file=False)
     
+    split_dataset.set_transform(apply_transforms_val)
 
     if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
 
@@ -150,7 +153,6 @@ def main():
         else range(1, 120)
     )
     metrics_function = None if data_args.save_inference or config.soft_labels else compute_metrics 
-    collator = partial(collate_fn, id_column=data_args.id_column)
     training_args.remove_unused_columns = False
     
     for batch_size in batch_sizes:
@@ -163,8 +165,9 @@ def main():
             train_dataset=None,
             eval_dataset=None,
             compute_metrics=metrics_function,
+            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
             tokenizer=tokenizer,
-            data_collator=collator,
+            data_collator=collate_fn,
         )
 
         if data_args.save_inference:

@@ -93,7 +93,6 @@ class DataTrainingArguments:
             )
         },
     )
-
     logging : Optional[str] = field(
         default="disabled",
         metadata={
@@ -119,6 +118,9 @@ class DataTrainingArguments:
                 "Whether to save the inference results."
             )
         },
+    )
+    eval_steps_factor: Optional[int] = field(
+        default=8,
     )
 
 

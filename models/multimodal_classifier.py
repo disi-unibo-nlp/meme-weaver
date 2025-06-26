@@ -162,6 +162,7 @@ class CustomMultiModalForClassification(PreTrainedModel):
         token_type_ids=None,
         pixel_values=None,
         labels=None,
+        instance_ids=None, 
         **kwargs
     ):
         # 1. Text features

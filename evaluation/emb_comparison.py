@@ -2,7 +2,7 @@ import sys
 sys.path.append('./')
 
 import os
-import torch
+import time
 import pickle
 import argparse
 import numpy as np
@@ -18,19 +18,27 @@ from sklearn.model_selection import cross_val_score
 
 columns_dict = {"mami": ["shaming", "stereotype", "objectification", "violence"],}
 
+
+def clean_image(image_path):
+    fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
+    fig.write_image(image_path, format="pdf")
+    time.sleep(1)
+
+
 def plot_all_embeddings(features, instance_ids, output_path, updated=False):
+
     # 1) prepare metadata
     ds = load_dataset(args.dataset, split="test")
     ds_df = ds.to_pandas()
     if args.id_column not in ds_df:
         ds_df = ds_df.reset_index().rename(columns={"index": args.id_column})
-    mami = ["label", "shaming", "stereotype", "objectification", "violence"]
+    mami = [args.target_column, "shaming", "stereotype", "objectification", "violence"]
     ds_df = ds_df[[args.id_column] + [c for c in mami if c in ds_df.columns]]
     # 1a) build merged base
     df = pd.DataFrame({args.id_column: instance_ids})
     merged = df.merge(ds_df, on=args.id_column, how="inner")
     conds = [
-        merged["label"] == 0,
+        merged[args.target_column] == 0,
         merged["shaming"] == 1,
         merged["stereotype"] == 1,
         merged["objectification"] == 1,
@@ -38,7 +46,7 @@ def plot_all_embeddings(features, instance_ids, output_path, updated=False):
     ]
     labels = ["non-misogynistic","shaming","stereotype","objectification","violence"]
     merged["type"] = np.select(conds, labels, default="other")
-    merged["binary_type"] = merged["label"].map({0:"non-misogynistic",1:"misogynistic"})
+    merged["binary_type"] = merged[args.target_column].map({0:"non-misogynistic",1:"misogynistic"})
 
     # 2) embedding methods
     methods = {
@@ -58,6 +66,11 @@ def plot_all_embeddings(features, instance_ids, output_path, updated=False):
 
             # two plots: multiclass and binary
             for col, suffix in (("type",""), ("binary_type","_binary")):
+
+                fname = f"{name}{'_upd' if updated else ''}_{args.batch_size}bs_{dim}d{suffix}.pdf"
+                image_path = os.path.join(sub, fname)
+                clean_image(image_path)
+
                 fig = (px.scatter if dim==2 else px.scatter_3d)(
                     merged, x="x", y="y", **({"z":"z"} if dim==3 else {}),
                     color=col,
@@ -67,11 +80,18 @@ def plot_all_embeddings(features, instance_ids, output_path, updated=False):
                 )
                 # smaller, translucent markers
                 fig.update_traces(marker=dict(size=6 if dim==2 else 2))
-                fname = f"{name}{'_upd' if updated else ''}_{args.batch_size}bs_{dim}d{suffix}.pdf"
-                fig.write_image(os.path.join(sub, fname))
+                
+                fig.write_image(image_path)
 
 
 def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path, updated=False):
+    
+    output_path = os.path.join(output_path, "separation")
+    os.makedirs(output_path, exist_ok=True)
+
+    image_path = os.path.join(output_path, f"tsne{'_upd' if updated else ''}_{args.batch_size}bs_2d_binary.pdf")
+    clean_image(image_path)
+    
     tsne = TSNE(n_components=2, perplexity=30, random_state=42)
     X2 = tsne.fit_transform(all_feats_stacked)
 
@@ -79,14 +99,14 @@ def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path
     ds_df = ds.to_pandas()
     if args.id_column not in ds_df:
         ds_df = ds_df.reset_index().rename(columns={"index": args.id_column})
-    mami = ["label", "shaming", "stereotype", "objectification", "violence"]
+    mami = [args.target_column, "shaming", "stereotype", "objectification", "violence"]
     ds_df = ds_df[[args.id_column] + [c for c in mami if c in ds_df.columns]]
     # 1a) build merged base
     df = pd.DataFrame({args.id_column: all_instance_ids})
     merged = df.merge(ds_df, on=args.id_column, how="inner")
 
     conds = [
-        merged["label"] == 0,
+        merged[args.target_column] == 0,
         merged["shaming"] == 1,
         merged["stereotype"] == 1,
         merged["objectification"] == 1,
@@ -94,7 +114,7 @@ def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path
     ]
     labels = ["non-misogynistic","shaming","stereotype","objectification","violence"]
     merged["type"] = np.select(conds, labels, default="other")
-    merged["binary_type"] = merged["label"].map({0:"non-misogynistic",1:"misogynistic"})
+    merged["binary_type"] = merged[args.target_column].map({0:"non-misogynistic",1:"misogynistic"})
 
     merged["x"], merged["y"] = X2[:,0], X2[:,1]
     coords = merged[["x","y"]].values
@@ -119,7 +139,7 @@ def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path
     contour = go.Contour(
         x=xx, y=yy, z=Z,
         showscale=False,
-        opacity=0.2,
+        opacity=0.6,
         colorscale=[[0, 'lightblue'], [1, 'lightcoral']],
         hoverinfo='skip',
         contours=dict(start=0, end=1, size=1)
@@ -130,16 +150,49 @@ def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path
         merged, x="x", y="y",
         color="binary_type",
         hover_data=[args.id_column],
-        title=f"t-SNE (2D){' upd' if updated else ''}: binary classes",
         width=800, height=600
     )
-    fig.update_traces(marker=dict(size=6))
+    # make the markers small in the plot but larger in the legend
+    fig.update_traces(
+        marker=dict(size=7),
+        selector=dict(mode='markers')
+    )
 
     # 6) add the contour *before* the scatter so points draw on top
     fig.add_trace(contour)
+
+    # 7) layout tweaks:
+    fig.update_layout(
+        # remove axis titles
+        xaxis_title='',
+        yaxis_title='',
+        legend_title_text='',
+        
+        font=dict(
+            family="Arial, sans-serif",
+            size=18,          # global font size
+            color="black"
+        ),
+
+        # legend on top, horizontal, centered
+        legend=dict(
+            orientation='h',
+            y=1.05,
+            x=0.5,
+            xanchor='center',
+            yanchor='bottom',
+            # force the legend symbols to reflect marker.size
+            itemsizing='constant',
+            # enlarge the font (optional)
+            font=dict(size=20)
+        ),
+
+        # tighten margins so legend doesn’t get cut off
+        margin=dict(t=80, b=40, l=40, r=40)
+    )
     
     # 7) save or show
-    fig.write_image(os.path.join(output_path, f"tsne{'_upd' if updated else ''}_{args.batch_size}bs_2d_binary.pdf"))
+    fig.write_image(image_path)
 
 
 def main():
@@ -178,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="paoloitaliani/mami")
     parser.add_argument("--run_name")
     parser.add_argument("--id_column", default="file_name")
+    parser.add_argument("--target_column", default="label")
     parser.add_argument("--batch_size", type=int)
 
     args = parser.parse_args()
