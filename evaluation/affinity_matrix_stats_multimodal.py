@@ -72,19 +72,46 @@ def compute_distribution(elements):
 
 def create_plot(df, sim_measure, sim_type, output_path, color_map, color):
 
-    # Create scatter plot
+    df_plot = df.copy()
+    ordered_cats = list(color_map.keys())
+    df_plot[color] = pd.Categorical(
+        df_plot[color],
+        categories=ordered_cats,
+        ordered=True
+    )
+
+    # 2) Scatter
     fig = px.scatter(
-        df,
+        df_plot,
         x="Affinity Score",
         y=sim_measure,
-        title=f"Affinity Score vs {sim_measure}",
-        opacity=0.4,
+        color=color,
         color_discrete_map=color_map,
-        color=color, 
+        opacity=0.7,
+        title=""
     )
     fig.update_traces(marker=dict(size=4))
-    folder_path = os.path.join(output_path, f"affinity_matrix_corr_{sim_type}_{args.fig_type}_{args.batch_size}_bs.pdf")
-    fig.write_image(folder_path)
+    fig.update_layout(
+        legend_title_text='',
+        legend_traceorder='normal',  # now follows the categorical order
+        font=dict(family="Arial, sans-serif", size=15),
+        legend=dict(
+            orientation='h',
+            y=1.05, x=0.5,
+            xanchor='center',
+            yanchor='bottom',
+            itemsizing='constant',
+            font=dict(size=15)
+        ),
+        margin=dict(t=80, b=40, l=40, r=40)
+    )
+
+    # 3) Save
+    out_file = os.path.join(
+        output_path,
+        f"affinity_matrix_corr_{sim_type}_{args.fig_type}_{args.batch_size}_bs.pdf"
+    )
+    fig.write_image(out_file)
 
 
 def get_label_pair(labels, preds):
@@ -134,17 +161,21 @@ def get_label_pair(labels, preds):
     return misogniny_pairs, pred_pairs
 
 
-def get_color_map(df, color):
-    unique_pairs = df[color].unique()
-    # pick whichever palette you like; here we use Plotly’s built-in qualitative palette
-    palette = px.colors.qualitative.Plotly  
-    # map each Pred Pair -> one colour (cycling if you have more pairs than colours)
+def get_color_map(df, color, palette="G10", palette_type="qualitative"):
+    
+    cool_palette = ["#721DAF",
+                    "#DBDB13",
+                    "#E83C0D"] 
+
+    # 2) Get sorted unique category values
+    unique_vals = sorted(df[color].unique())
+
+    # 3) Cycle through the palette for as many categories as you have
     color_map = {
-        pair: palette[i % len(palette)]
-        for i, pair in enumerate(unique_pairs)
+        val: cool_palette[i % len(cool_palette)]
+        for i, val in enumerate(unique_vals)
     }
     return color_map
-    
 
 
 def main():
@@ -268,7 +299,8 @@ def main():
     output_path_features = os.path.join(output_path, "correlation", "fused_features")
     os.makedirs(output_path_features, exist_ok=True)
 
-    create_plot(df, "Fused Features Similarity", "features", output_path_features, color_map_mis, color_pred_pair)
+    create_plot(df, "Fused Features Similarity", "features_all_class", output_path_features, color_map_mis, color_mis_pair)
+    create_plot(df, "Fused Features Similarity", "features_all_outcome", output_path_features, color_map_pred, color_pred_pair)
     create_plot(df_mixed_mis, "Fused Features Similarity", "features_mix_mis", output_path_features, color_map_pred, color_pred_pair)
     create_plot(df_both_mis, "Fused Features Similarity", "features_both_mis", output_path_features, color_map_pred, color_pred_pair)
     create_plot(df_both_non_mis, "Fused Features Similarity", "features_both_non_mis", output_path_features, color_map_pred, color_pred_pair)

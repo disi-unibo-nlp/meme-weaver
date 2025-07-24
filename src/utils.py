@@ -8,7 +8,7 @@ import torch
 import numpy as np
 import pandas as pd
 from torch.nn import init
-from scipy.special import softmax
+from scipy.special import expit
 from codecarbon import EmissionsTracker
 from sklearn.metrics import (
     precision_score,
@@ -19,9 +19,9 @@ from sklearn.metrics import (
 )
 
 from transformers import AutoModelForSequenceClassification, EvalPrediction
-from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
+# from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 # from models.modernbert_classifier import ModernBertForSequenceClassification
-from models.llama_classifier import LlamaForSequenceClassification
+# from models.llama_classifier import LlamaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
     
@@ -48,13 +48,12 @@ def collate_fn(examples):
     input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
     attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
     labels = torch.tensor([example["labels"] for example in examples])
-    instance_ids = [example["instance_ids"] for example in examples]
+
     return {
         "pixel_values": pixel_values,
         "input_ids": input_ids,
         "attention_mask": attention_mask,
         "labels": labels,
-        "instance_ids": instance_ids,
     }
 
 
@@ -95,7 +94,10 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     test_emissions = test_tracker.stop()
 
     probs = predict_results.predictions
-    preds = (probs > predict_results.metrics[f"{split}_threshold"]).astype(int)
+    if probs.ndim > 1:
+        preds = (probs >= 0.5).astype(int)
+    else:
+        preds = (probs > predict_results.metrics[f"{split}_threshold"]).astype(int)
 
     all_pred_dicts = []
     predict_dataset.reset_format()
@@ -104,7 +106,11 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
         if target_column == "soft_label_task4":
             value = probs[i].item() 
         else:
-            value = int(preds[i])
+
+            if probs.ndim > 1:
+                value = preds[i].tolist()
+            else:
+                value = int(preds[i])
 
         pred_dict = {"id": inst_id, "value": value}
             
@@ -166,21 +172,45 @@ def preprocess_logits_for_metrics(logits, labels):
     Convert raw model logits into a 1-D tensor of positive-class probabilities,
     detached and moved to CPU so we don’t hold on to any GPU graph.
     """
+
     # If Trainer returned a tuple (loss, logits), grab logits:
     logits = logits[0] if isinstance(logits, tuple) else logits
-    probs_pos = torch.softmax(logits, dim=-1)[:, 1]
+    if labels.dim() > 1:
+        probs = expit(logits.detach().cpu())
+    else:
+        probs = torch.softmax(logits, dim=-1)[:, 1].detach().cpu()
 
-    return probs_pos.detach().cpu()
+    return probs
 
 
 def compute_metrics(eval_pred: EvalPrediction):
     # eval_pred.predictions is now a 1-D numpy array of positive-class probs
     probs = eval_pred.predictions
     labels = eval_pred.label_ids
+    
+    if labels.ndim > 1:
+        preds = (probs >= 0.5).astype(int)
 
-    # run your threshold sweep
-    best_threshold = evaluate_thresholds(probs, labels, num=100)
-    return best_threshold
+        results = {
+            'precision_macro': round(100 * precision_score(labels, preds,
+                                                        average='macro',
+                                                        zero_division=0), 2),
+            'recall_macro':    round(100 * recall_score(labels, preds,
+                                                        average='macro',
+                                                        zero_division=0), 2),
+            'f1_macro':        round(100 * f1_score(labels, preds,
+                                                    average='macro',
+                                                    zero_division=0), 2),
+            'accuracy':        round(100 * accuracy_score(labels, preds), 2),   
+            'roc_auc_macro':   round(100 * roc_auc_score(labels, preds,
+                                                        average='macro'), 2),
+        }
+    
+    else:
+        # run your threshold sweep
+        results = evaluate_thresholds(probs, labels, num=100)
+
+    return results
 
 
 def init_gcn_layer(layer):
@@ -221,6 +251,7 @@ def set_config_from_args(config, model_args, data_args, training_args, config_js
 
         config.image_caption = data_args.image_caption
         config.soft_labels = True if "soft" in data_args.target_column else False
+        config.multi_label = data_args.multi_label
 
     else:
         # Inference-time initialization from JSON
@@ -239,11 +270,15 @@ def set_config_from_args(config, model_args, data_args, training_args, config_js
         # Use values from model_args / training_args when present
         config.save_affinity = model_args.save_affinity
         config.batch_size = training_args.per_device_eval_batch_size
+        config.multi_label = data_args.multi_label
 
     return config
 
 def model_xavier_init(config, model, model_args):
     # try to init parameters in a different way
+
+    if model_args.classifier_xavier_init:
+        init.xavier_uniform_(model.classifier.weight)
 
     if model_args.checkpoint_path is None:
         if config.num_gcn_layers > 0:
@@ -278,9 +313,9 @@ def model_xavier_init(config, model, model_args):
     for param in model.parameters(): param.data = param.data.contiguous()
 
 
-model_constructors = {
-    "xlm-roberta": XLMRobertaForSequenceClassification,
-    "ModernBERT": None,
-    "Meta-Llama": LlamaForSequenceClassification,
-}
+# model_constructors = {
+#     "xlm-roberta": XLMRobertaForSequenceClassification,
+#     "ModernBERT": None,
+#     "Meta-Llama": LlamaForSequenceClassification,
+# }
 

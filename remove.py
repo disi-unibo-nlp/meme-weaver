@@ -3,10 +3,15 @@ import shutil
 import argparse
 
 FOLDERS_TO_KEEP = [
-                   "clip-vit-large_batch20_5e-6lr",
-                   "clip-vit-large_batch20_5e-6lr_1gcn_xuinit_mfb",
-                   "custom_multimodal_xlm-roberta-large_vit-large-patch32-384_batch20_1gcn_xuinit_promptB",
-                   ]
+    "clip-vit-large_batch64_5e-6lr_1gcn_xuinit_mami20bs_captionPA_concat",
+    "clip-vit-large_batch64_5e-6lr_mami20bs_captionPA_concat"
+    "clip-vit-large_batch20_5e-6lr",
+    "clip-vit-large_batch20_5e-6lr_1gcn_xuinit_mfb",
+    "custom_multimodal_xlm-roberta-large_vit-large-patch32-384_batch20_1gcn_xuinit_promptB",
+    "clip-vit-large_batch20_5e-6lr_concat",
+    "clip-vit-large_batch20_5e-6lr_mfb",
+    "clip-vit-large_batch20_5e-6lr_1gcn_xuinit_concat"
+]
 
 def get_folders_in_path(directory):
     folders = []

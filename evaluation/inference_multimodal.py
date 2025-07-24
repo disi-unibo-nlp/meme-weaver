@@ -71,8 +71,8 @@ def main():
             # download_mode="force_redownload",
         )
     
-
     split_dataset = raw_datasets[data_args.split]
+    num_labels = len(set(split_dataset[data_args.target_column]))
     
     tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
 
@@ -88,7 +88,7 @@ def main():
 
     config = AutoConfig.from_pretrained(
         model_args.model_name_or_path,
-        num_labels=2, # TODO make it dynamic
+        num_labels=num_labels, 
         cache_dir="../llms",
         trust_remote_code=True,
     )
@@ -180,6 +180,7 @@ def main():
             os.makedirs(metric_output_path, exist_ok=True)
             # Save the metrics to json 
             metrics_file = os.path.join(metric_output_path, f"{data_args.split}_results_batch{training_args.per_device_eval_batch_size}.json")
+            print(metrics)
             with open(metrics_file, "w") as f:
                 json.dump(metrics, f, indent=4)
 

@@ -14,10 +14,11 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import Pipeline
 
-
-columns_dict = {"mami": ["shaming", "stereotype", "objectification", "violence"],}
-
+columns_dict = {
+    "mami": ["shaming", "stereotype", "objectification", "violence"],
+}
 
 def clean_image(image_path):
     fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
@@ -25,205 +26,180 @@ def clean_image(image_path):
     time.sleep(1)
 
 
-def plot_all_embeddings(features, instance_ids, output_path, updated=False):
-
-    # 1) prepare metadata
+def plot_all_embeddings(features, instance_ids, output_path, updated=False, use_pca_tsne=False):
+    # Load metadata
     ds = load_dataset(args.dataset, split="test")
     ds_df = ds.to_pandas()
     if args.id_column not in ds_df:
         ds_df = ds_df.reset_index().rename(columns={"index": args.id_column})
-    mami = [args.target_column, "shaming", "stereotype", "objectification", "violence"]
-    ds_df = ds_df[[args.id_column] + [c for c in mami if c in ds_df.columns]]
-    # 1a) build merged base
-    df = pd.DataFrame({args.id_column: instance_ids})
-    merged = df.merge(ds_df, on=args.id_column, how="inner")
-    conds = [
-        merged[args.target_column] == 0,
-        merged["shaming"] == 1,
-        merged["stereotype"] == 1,
-        merged["objectification"] == 1,
-        merged["violence"] == 1,
-    ]
-    labels = ["non-misogynistic","shaming","stereotype","objectification","violence"]
-    merged["type"] = np.select(conds, labels, default="other")
-    merged["binary_type"] = merged[args.target_column].map({0:"non-misogynistic",1:"misogynistic"})
 
-    # 2) embedding methods
-    methods = {
-        "tsne": lambda X,n: TSNE(n_components=n, perplexity=30, random_state=42).fit_transform(X),
-        "pca":  lambda X,n: PCA(n_components=n, random_state=42).fit_transform(X),
-    }
+    # Determine target and extra label cols
+    target = args.target_column
+    extra_labels = columns_dict.get(args.dataset, [])
+
+    # Keep only id, target, and any extra label columns present
+    keep_cols = [args.id_column, target] + [c for c in extra_labels if c in ds_df.columns]
+    ds_df = ds_df[keep_cols]
+
+    df_ids = pd.DataFrame({args.id_column: instance_ids})
+    merged = df_ids.merge(ds_df, on=args.id_column, how="inner")
+
+    # Build multiclass type if extra_labels exist
+    if extra_labels:
+        conds = [merged[target] == 0] + [merged[col] == 1 for col in extra_labels]
+        labels = [f"non-{target}".replace('-', '_')] + extra_labels
+        merged['type'] = np.select(conds, labels, default='other')
+    else:
+        merged['type'] = merged[target].map({0: f"Non-Misogynistic", 1: "Misogynistic"})
+
+    merged['binary_type'] = merged[target].map({0: f"Non-Misogynistic", 1: "Misogynistic"})
+
+    # Choose embedding
+    if use_pca_tsne:
+        methods = {'pca_tsne': lambda X, n: Pipeline([
+            ('pca50', PCA(n_components=50, random_state=42)),
+            ('tsne', TSNE(n_components=n, perplexity=30, random_state=42))
+        ]).fit_transform(X)}
+    else:
+        methods = {'tsne': lambda X, n: TSNE(n_components=n, perplexity=30, random_state=42).fit_transform(X)}
 
     for name, embed_fn in methods.items():
-        for dim in (2,3):
+        for dim in (2, 3):
             X = embed_fn(features, dim)
-            # add coords
-            for i, axis in enumerate(("x","y","z")[:dim]):
+            for i, axis in enumerate(("x", "y", "z")[:dim]):
                 merged[axis] = X[:, i]
-            # prepare folder
-            sub = os.path.join(output_path, name, f"{dim}d")
-            os.makedirs(sub, exist_ok=True)
+            subdir = os.path.join(output_path, name, f"{dim}d")
+            os.makedirs(subdir, exist_ok=True)
 
-            # two plots: multiclass and binary
-            for col, suffix in (("type",""), ("binary_type","_binary")):
+            # Multiclass plot
+            fname = f"{name}{'_upd' if updated else ''}_{args.batch_size}bs_{dim}d.pdf"
+            path = os.path.join(subdir, fname)
+            clean_image(path)
+            fig = (px.scatter if dim==2 else px.scatter_3d)(
+                merged, x="x", y="y", **({"z": "z"} if dim==3 else {}),
+                color="type" if extra_labels else None,
+                hover_data=[args.id_column],
+                title=f"{name.upper()} ({dim}D) colored by type",
+                width=800, height=600
+            )
+            fig.update_traces(marker=dict(size=6 if dim==2 else 2))
+            fig.write_image(path)
 
-                fname = f"{name}{'_upd' if updated else ''}_{args.batch_size}bs_{dim}d{suffix}.pdf"
-                image_path = os.path.join(sub, fname)
-                clean_image(image_path)
-
-                fig = (px.scatter if dim==2 else px.scatter_3d)(
-                    merged, x="x", y="y", **({"z":"z"} if dim==3 else {}),
-                    color=col,
-                    hover_data=[args.id_column],
-                    title=f"{name.upper()} ({dim}D) colored by {col}",
-                    width=800, height=600
-                )
-                # smaller, translucent markers
-                fig.update_traces(marker=dict(size=6 if dim==2 else 2))
-                
-                fig.write_image(image_path)
+            # Binary plot
+            fname_b = f"{name}{'_upd' if updated else ''}_{args.batch_size}bs_{dim}d_binary.pdf"
+            path_b = os.path.join(subdir, fname_b)
+            clean_image(path_b)
+            fig_b = (px.scatter if dim==2 else px.scatter_3d)(
+                merged, x="x", y="y", **({"z": "z"} if dim==3 else {}),
+                color="binary_type",
+                hover_data=[args.id_column],
+                title=f"{name.upper()} ({dim}D) colored by binary_type",
+                width=800, height=600
+            )
+            fig_b.update_traces(marker=dict(size=6 if dim==2 else 2))
+            fig_b.write_image(path_b)
 
 
-def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path, updated=False):
-    
-    output_path = os.path.join(output_path, "separation")
-    os.makedirs(output_path, exist_ok=True)
-
-    image_path = os.path.join(output_path, f"tsne{'_upd' if updated else ''}_{args.batch_size}bs_2d_binary.pdf")
+def evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path,
+                                updated=False, use_pca_tsne=False):
+    out_sep = os.path.join(output_path, "separation")
+    os.makedirs(out_sep, exist_ok=True)
+    tag = 'pca_tsne' if use_pca_tsne else 'tsne'
+    image_path = os.path.join(out_sep, f"{tag}{'_upd' if updated else ''}_{args.batch_size}bs_2d_binary.pdf")
     clean_image(image_path)
-    
-    tsne = TSNE(n_components=2, perplexity=30, random_state=42)
-    X2 = tsne.fit_transform(all_feats_stacked)
 
+    if use_pca_tsne:
+        pipe = Pipeline([
+            ('pca50', PCA(n_components=50, random_state=42)),
+            ('tsne2', TSNE(n_components=2, perplexity=30, random_state=42))
+        ])
+        X2 = pipe.fit_transform(all_feats_stacked)
+    else:
+        X2 = TSNE(n_components=2, perplexity=30, random_state=42).fit_transform(all_feats_stacked)
+
+    # Load and merge metadata
     ds = load_dataset(args.dataset, split="test")
     ds_df = ds.to_pandas()
     if args.id_column not in ds_df:
         ds_df = ds_df.reset_index().rename(columns={"index": args.id_column})
-    mami = [args.target_column, "shaming", "stereotype", "objectification", "violence"]
-    ds_df = ds_df[[args.id_column] + [c for c in mami if c in ds_df.columns]]
-    # 1a) build merged base
-    df = pd.DataFrame({args.id_column: all_instance_ids})
-    merged = df.merge(ds_df, on=args.id_column, how="inner")
+    target = args.target_column
+    ds_df = ds_df[[args.id_column, target]]
+    df_ids = pd.DataFrame({args.id_column: all_instance_ids})
+    merged = df_ids.merge(ds_df, on=args.id_column, how="inner")
 
-    conds = [
-        merged[args.target_column] == 0,
-        merged["shaming"] == 1,
-        merged["stereotype"] == 1,
-        merged["objectification"] == 1,
-        merged["violence"] == 1,
-    ]
-    labels = ["non-misogynistic","shaming","stereotype","objectification","violence"]
-    merged["type"] = np.select(conds, labels, default="other")
-    merged["binary_type"] = merged[args.target_column].map({0:"non-misogynistic",1:"misogynistic"})
-
-    merged["x"], merged["y"] = X2[:,0], X2[:,1]
-    coords = merged[["x","y"]].values
-    binary_labels = (merged["binary_type"] == "misogynistic").astype(int).values
+    merged['x'], merged['y'] = X2[:,0], X2[:,1]
+    coords = merged[['x', 'y']].values
+    binary_labels = (merged[target] == 1).astype(int).values
 
     clf = LogisticRegression(solver="liblinear", random_state=42)
     scores = cross_val_score(clf, coords, binary_labels, cv=5, scoring="accuracy")
-    mean_acc, std_acc = scores.mean(), scores.std()
-    print(f"features{'_upd' if updated else ''} 2D linear‐sep accuracy: "
-        f"{mean_acc:.3f} ± {std_acc:.3f}")
-
+    print(f"{tag}{'_upd' if updated else ''} 2D linear‐sep accuracy: {scores.mean():.3f} ± {scores.std():.3f}")
     clf.fit(coords, binary_labels)
-    
 
-    # after clf.fit(...)
     xx = np.linspace(merged.x.min()-1, merged.x.max()+1, 200)
     yy = np.linspace(merged.y.min()-1, merged.y.max()+1, 200)
     xxg, yyg = np.meshgrid(xx, yy)
     Z = clf.predict(np.c_[xxg.ravel(), yyg.ravel()]).reshape(xxg.shape)
 
-    # 4) create contour for decision region
     contour = go.Contour(
         x=xx, y=yy, z=Z,
-        showscale=False,
-        opacity=0.6,
+        showscale=False, opacity=0.6,
         colorscale=[[0, 'lightblue'], [1, 'lightcoral']],
-        hoverinfo='skip',
-        contours=dict(start=0, end=1, size=1)
+        hoverinfo='skip', contours=dict(start=0, end=1, size=1)
     )
 
-    # 5) build your scatter
+    label_map = {0: f"Non-Misogynistic", 1: "Misogynistic"} if "output_mami" in output_path else {0: "Non-Sexist", 1: "Sexist"}
+
+    # 2) Map the numeric target to strings, then cast to Categorical with a fixed order:
+    merged[args.target_column] = merged[target].map(label_map)
+    fixed_order = list(label_map.values())  # e.g. ["Non-Misogynistic", "Misogynistic"]
+    merged[args.target_column] = pd.Categorical(merged[args.target_column], categories=fixed_order, ordered=True)
+
     fig = px.scatter(
-        merged, x="x", y="y",
-        color="binary_type",
-        hover_data=[args.id_column],
-        width=800, height=600
+        merged, x="x", y="y", color=args.target_column,
+        hover_data=[args.id_column], width=800, height=600, category_orders={args.target_column: fixed_order},
     )
-    # make the markers small in the plot but larger in the legend
-    fig.update_traces(
-        marker=dict(size=7),
-        selector=dict(mode='markers')
-    )
-
-    # 6) add the contour *before* the scatter so points draw on top
+    fig.update_traces(marker=dict(size=7), selector=dict(mode='markers'))
     fig.add_trace(contour)
 
-    # 7) layout tweaks:
+    fig_model = "CLIP(MemeWeaver)" if "gcn" in output_path else "CLIP"
+    fig_dataset = "MAMI" if "output_mami" in output_path else "EXIST"
+    fig_title = f"{fig_model} {fig_dataset}"
     fig.update_layout(
-        # remove axis titles
-        xaxis_title='',
-        yaxis_title='',
-        legend_title_text='',
-        
-        font=dict(
-            family="Arial, sans-serif",
-            size=18,          # global font size
-            color="black"
-        ),
-
-        # legend on top, horizontal, centered
-        legend=dict(
-            orientation='h',
-            y=1.05,
+        title=dict(
+            text=fig_title,
             x=0.5,
-            xanchor='center',
-            yanchor='bottom',
-            # force the legend symbols to reflect marker.size
-            itemsizing='constant',
-            # enlarge the font (optional)
-            font=dict(size=20)
+            xanchor='center'
         ),
-
-        # tighten margins so legend doesn’t get cut off
-        margin=dict(t=80, b=40, l=40, r=40)
+        font_family="Latin Modern Roman, serif",
+        # template="plotly_white",
+        xaxis_title="", yaxis_title='', legend_title_text='',
+        font=dict(family="Arial, sans-serif", size=18, color="black"),
+        #legend=dict(orientation='h', y=1.05, x=0.5, xanchor='center', yanchor='bottom', itemsizing='constant', font=dict(size=20)),
+        showlegend=False,
+        margin=dict(t=40, b=40, l=40, r=40)
     )
-    
-    # 7) save or show
     fig.write_image(image_path)
 
 
 def main():
-
     output_path = os.path.join(args.output_dir, args.run_name, "images", "embeddings")
     os.makedirs(output_path, exist_ok=True)
 
-    affinity_files = os.listdir(os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs"))
+    affinity_dir = os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs")
+    affinity_files = os.listdir(affinity_dir)
+    all_affinity_data = [pickle.load(open(os.path.join(affinity_dir, f), 'rb')) for f in affinity_files]
 
-    all_affinity_data = []
-    for affinity_file in affinity_files:
-        affinity_path = os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs", affinity_file)
-        with open(affinity_path, "rb") as f:
-            all_affinity_data.append(pickle.load(f))
+    feats = np.vstack([e["features"].numpy() for e in all_affinity_data])
+    feats_upd = np.vstack([e["features_upd"].numpy() for e in all_affinity_data])
+    all_ids = [i for e in all_affinity_data for i in e["instance_ids"]]
 
-    all_feats = []
-    all_feats_upd = []
-    all_instance_ids = []
-    for entry in all_affinity_data:
-        all_feats.append(entry["features"].numpy())
-        all_feats_upd.append(entry["features_upd"].numpy())
-        all_instance_ids.extend(entry["instance_ids"])
+    plot_all_embeddings(feats, all_ids, output_path, updated=False, use_pca_tsne=False)
+    evaluate_cluster_separation(feats, all_ids, output_path, updated=False, use_pca_tsne=False)
 
-    all_feats_stacked = np.vstack(all_feats)
-    all_feats_upd_stacked = np.vstack(all_feats_upd)
-    # plot_all_embeddings(all_feats_stacked, all_instance_ids, output_path, updated=False)
-    # plot_all_embeddings(all_feats_upd_stacked, all_instance_ids, output_path, updated=True)
-
-    evaluate_cluster_separation(all_feats_stacked, all_instance_ids, output_path, updated=False)
-    evaluate_cluster_separation(all_feats_upd_stacked, all_instance_ids, output_path, updated=True)
-
+    # PCA->TSNE
+    plot_all_embeddings(feats_upd, all_ids, output_path, updated=True, use_pca_tsne=True)
+    evaluate_cluster_separation(feats_upd, all_ids, output_path, updated=True, use_pca_tsne=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -233,6 +209,5 @@ if __name__ == "__main__":
     parser.add_argument("--id_column", default="file_name")
     parser.add_argument("--target_column", default="label")
     parser.add_argument("--batch_size", type=int)
-
     args = parser.parse_args()
     main()

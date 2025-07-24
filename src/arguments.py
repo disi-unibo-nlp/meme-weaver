@@ -122,6 +122,14 @@ class DataTrainingArguments:
     eval_steps_factor: Optional[int] = field(
         default=8,
     )
+    multi_label: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use multi-label classification (True)"
+            )
+        },
+    )
 
 
 @dataclass
@@ -239,6 +247,14 @@ class ModelArguments:
         metadata={
             "help": (
                 "The type of modality fuser to use."
+            )
+        },
+    )
+    classifier_xavier_init: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use xavier initialization for the classifier."
             )
         },
     )

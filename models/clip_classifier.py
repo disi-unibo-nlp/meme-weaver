@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
 
 from transformers.utils import (
-    add_start_docstrings_to_model_forward,
     replace_return_docstrings,
-    add_start_docstrings,
     ModelOutput,
 )
 
@@ -17,10 +15,6 @@ from transformers.modeling_outputs import BaseModelOutputWithPooling
 from transformers.models.clip.configuration_clip import CLIPConfig
 
 from transformers.models.clip.modeling_clip import (
-    CLIP_START_DOCSTRING,
-    CLIP_TEXT_INPUTS_DOCSTRING,
-    CLIP_VISION_INPUTS_DOCSTRING,
-    CLIP_INPUTS_DOCSTRING,
     CLIPTextModel,
     CLIPVisionModel,
     CLIPTextConfig,
@@ -137,7 +131,6 @@ class CrossModalAttention(nn.Module):
 
 
 
-@add_start_docstrings(CLIP_START_DOCSTRING)
 class CLIPForMultimodalClassification(CLIPPreTrainedModel):
     config_class = CLIPConfig
     _no_split_modules = ["CLIPTextEmbeddings", "CLIPEncoderLayer", "CLIPVisionEmbeddings"]
@@ -178,7 +171,8 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.classifier = nn.Linear(self.projection_dim * 2, config.num_labels)
         # self.classifier = ClipClassificationHead(config)
 
-        self.loss_fct = nn.CrossEntropyLoss()
+        self.multi_label = config.multi_label
+        self.loss_fct =  nn.BCEWithLogitsLoss() if self.multi_label else nn.CrossEntropyLoss()
         self.soft_labels = config.soft_labels
 
         self.num_text_gcn_layers = config.num_text_gcn_layers
@@ -217,7 +211,6 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.post_init()
 
 
-    @add_start_docstrings_to_model_forward(CLIP_TEXT_INPUTS_DOCSTRING)
     def get_text_features(
         self,
         input_ids: Optional[torch.Tensor] = None,
@@ -264,7 +257,6 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         return text_features
 
-    @add_start_docstrings_to_model_forward(CLIP_VISION_INPUTS_DOCSTRING)
     def get_image_features(
         self,
         pixel_values: Optional[torch.FloatTensor] = None,
@@ -330,7 +322,6 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         return fused_features, R_norm
 
-    @add_start_docstrings_to_model_forward(CLIP_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CLIPOutput, config_class=CLIPConfig)
     def forward(
         self,
@@ -441,6 +432,9 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         if labels is not None:
             if self.soft_labels:
                 labels = torch.stack([1 - labels, labels], dim=1)
+            
+            if self.multi_label:
+                labels = labels.float()
 
             loss = self.loss_fct(logits, labels)
 
