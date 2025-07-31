@@ -27,6 +27,10 @@ class DataTrainingArguments:
         default="output",
         metadata={"help": "The name of the column in the datasets containing the labels"},
     )
+    id_column: Optional[str] = field(
+        default="id",
+        metadata={"help": "The name of the column in the datasets containing the ids"},
+    )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached preprocessed datasets or not."}
     )
@@ -89,7 +93,6 @@ class DataTrainingArguments:
             )
         },
     )
-
     logging : Optional[str] = field(
         default="disabled",
         metadata={
@@ -116,6 +119,17 @@ class DataTrainingArguments:
             )
         },
     )
+    eval_steps_factor: Optional[int] = field(
+        default=8,
+    )
+    multi_label: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use multi-label classification (True)"
+            )
+        },
+    )
 
 
 @dataclass
@@ -124,8 +138,17 @@ class ModelArguments:
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
 
-    model_name_or_path: str = field(
+    model_name_or_path: Optional[str] = field(
+        default=None,
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    )
+    text_model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to pretrained text model or model identifier from huggingface.co/models"},
+    )
+    vision_model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to pretrained vision model or model identifier from huggingface.co/models"},
     )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
@@ -216,6 +239,22 @@ class ModelArguments:
         metadata={
             "help": (
                 "The path to the checkpoint to use."
+            )
+        },
+    )
+    modality_fuser: str = field(
+        default="concat",
+        metadata={
+            "help": (
+                "The type of modality fuser to use."
+            )
+        },
+    )
+    classifier_xavier_init: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use xavier initialization for the classifier."
             )
         },
     )

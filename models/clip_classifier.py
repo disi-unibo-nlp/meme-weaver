@@ -6,24 +6,15 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
 
 from transformers.utils import (
-    add_start_docstrings_to_model_forward,
     replace_return_docstrings,
-    add_start_docstrings,
     ModelOutput,
 )
-
-import torch.nn.init as init
-from transformers.activations import ACT2FN                           
 
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from transformers.models.clip.configuration_clip import CLIPConfig
 
 from transformers.models.clip.modeling_clip import (
-    CLIP_START_DOCSTRING,
-    CLIP_TEXT_INPUTS_DOCSTRING,
-    CLIP_VISION_INPUTS_DOCSTRING,
-    CLIP_INPUTS_DOCSTRING,
     CLIPTextModel,
     CLIPVisionModel,
     CLIPTextConfig,
@@ -33,6 +24,7 @@ from transformers.models.clip.modeling_clip import (
 )
 
 from models.custom_modules import gcn_map
+from models.modality_fusers import fuser_map
 
 
 @dataclass
@@ -118,9 +110,27 @@ class ClipClassificationHead(nn.Module):
         return layer_output
 
 
+class CrossModalAttention(nn.Module):
+    def __init__(self, feat_dim):
+        super().__init__()
+        self.query_lin = nn.Linear(feat_dim, feat_dim)
+        self.key_lin   = nn.Linear(feat_dim, feat_dim)
+        self.value_lin = nn.Linear(feat_dim, feat_dim)
+        self.feat_dim = feat_dim
+
+    def forward(self, t, v):
+        # t: (batch, feat_dim), v: (batch, num_regions, feat_dim)
+        q = self.query_lin(t).unsqueeze(1)      # (batch, 1, feat_dim)
+        k = self.key_lin(v)                     # (batch, num_regions, feat_dim)
+        v_val = self.value_lin(v)               # (batch, num_regions, feat_dim)
+        attn = torch.softmax(q @ k.transpose(-2,-1) / self.feat_dim**0.5, dim=-1)
+        attended = attn @ v_val                 # (batch, 1, feat_dim)
+        attended = attended.squeeze(1)          # (batch, feat_dim)
+        fused = torch.cat([t, attended], dim=-1)  # (batch, 2*feat_dim)
+        return fused
 
 
-@add_start_docstrings(CLIP_START_DOCSTRING)
+
 class CLIPForMultimodalClassification(CLIPPreTrainedModel):
     config_class = CLIPConfig
     _no_split_modules = ["CLIPTextEmbeddings", "CLIPEncoderLayer", "CLIPVisionEmbeddings"]
@@ -161,7 +171,8 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.classifier = nn.Linear(self.projection_dim * 2, config.num_labels)
         # self.classifier = ClipClassificationHead(config)
 
-        self.loss_fct = nn.CrossEntropyLoss()
+        self.multi_label = config.multi_label
+        self.loss_fct =  nn.BCEWithLogitsLoss() if self.multi_label else nn.CrossEntropyLoss()
         self.soft_labels = config.soft_labels
 
         self.num_text_gcn_layers = config.num_text_gcn_layers
@@ -193,11 +204,13 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         self.batch_size = config.batch_size
         self.save_affinity = config.save_affinity
 
+        self.modality_fuser = fuser_map[config.modality_fuser](config)
+
+
         # Initialize weights and apply final processing
         self.post_init()
 
 
-    @add_start_docstrings_to_model_forward(CLIP_TEXT_INPUTS_DOCSTRING)
     def get_text_features(
         self,
         input_ids: Optional[torch.Tensor] = None,
@@ -244,7 +257,6 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         return text_features
 
-    @add_start_docstrings_to_model_forward(CLIP_VISION_INPUTS_DOCSTRING)
     def get_image_features(
         self,
         pixel_values: Optional[torch.FloatTensor] = None,
@@ -310,7 +322,6 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
 
         return fused_features, R_norm
 
-    @add_start_docstrings_to_model_forward(CLIP_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CLIPOutput, config_class=CLIPConfig)
     def forward(
         self,
@@ -322,6 +333,7 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        instance_ids: Optional[list] = None, 
     ) -> Union[Tuple, CLIPOutput]:
         r"""
         Returns:
@@ -384,7 +396,8 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         text_embeds, R_norm_text = self.apply_gcn(text_embeds, self.text_gcn_layers)
 
         # Multimodal fusion (concatenation in this case)
-        fused_features = torch.cat((text_embeds, image_embeds), dim=-1)
+
+        fused_features = self.modality_fuser(text_embeds, image_embeds)
 
         # Apply GCN layers (and optional feed-forward) to the fused features.
         fused_features_upd, R_norm = self.apply_gcn(fused_features, self.rs_gcn_layers)
@@ -406,8 +419,12 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
                              'labels': labels.cpu(), 
                              "image_embeds": image_embeds.cpu(), 
                              "text_embeds": text_embeds.cpu(),
-                             "logits": logits.cpu()}, f)
+                             "logits": logits.cpu(),
+                             "instance_ids": instance_ids,   
+                             }
+                             , f)
         
+    
         if self.soft_labels:
             logits = logits.softmax(dim=1)
 
@@ -415,6 +432,9 @@ class CLIPForMultimodalClassification(CLIPPreTrainedModel):
         if labels is not None:
             if self.soft_labels:
                 labels = torch.stack([1 - labels, labels], dim=1)
+            
+            if self.multi_label:
+                labels = labels.float()
 
             loss = self.loss_fct(logits, labels)
 

@@ -16,13 +16,14 @@ import wandb
 import numpy
 import random
 
+from qwen_vl_utils import process_vision_info
 from datasets import load_dataset, DatasetDict
 from torchvision.transforms import CenterCrop, ConvertImageDtype, Normalize, Resize
 from torchvision.transforms.functional import InterpolationMode
 
 from codecarbon import EmissionsTracker
+
 from transformers import (
-    AutoFeatureExtractor,
     AutoTokenizer,
     HfArgumentParser,
     Trainer,
@@ -30,6 +31,7 @@ from transformers import (
     set_seed,
     get_scheduler,
     AutoConfig,
+    AutoProcessor,
 )
 
 from torchvision.transforms import (
@@ -40,6 +42,12 @@ from torchvision.transforms import (
     RandomResizedCrop,
     Resize,
     ToTensor,
+)
+
+from torchvision.transforms import (
+    CenterCrop,
+    Normalize,
+    Resize,
 )
 
 
@@ -53,6 +61,7 @@ from utils import (compute_metrics,
 
 from arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
+from models.qwen2_5_classifier import Qwen2_5_VLForMultimodalClassification
 from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
 
 # We use torchvision for faster image pre-processing. The transforms are implemented as nn.Module,
@@ -73,6 +82,20 @@ class Transform(torch.nn.Module):
             x = self.transforms(x)
         return x
 
+def collate_fn(examples):
+    pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
+    input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
+    attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
+    labels = torch.tensor([example["labels"] for example in examples])
+    image_grid_thw = torch.stack([example["image_grid_thw"] for example in examples])
+
+    return {
+        "pixel_values": pixel_values,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "image_grid_thw": image_grid_thw,
+    }
 
 def main():
     # 1. Parse input arguments
@@ -80,6 +103,30 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
+    image_mean = [0.48145466, 0.4578275, 0.40821073]
+    image_std = [0.26862954, 0.26130258, 0.27577711]
+
+    normalize = Normalize(mean=image_mean, std=image_std)
+    
+    crop_size = (224, 224)
+    train_transforms = Compose(
+            [
+                RandomResizedCrop(crop_size),
+                RandomHorizontalFlip(),
+                ToTensor(),
+                normalize,
+            ]
+        )
+
+    val_transforms = Compose(
+            [
+                Resize(224),
+                CenterCrop(crop_size),
+                ToTensor(),
+                normalize,
+            ]
+        )
+    
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -95,6 +142,8 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
+
+
         
     def not_none(example):
         return example[data_args.target_column] is not None
@@ -105,7 +154,6 @@ def main():
         data_args.dataset_subset,
         cache_dir="../datasets",
     )
-
     if data_args.multi_label:
         dataset = DatasetDict({
             split: ds.filter(not_none)
@@ -122,8 +170,6 @@ def main():
             project=data_args.dataset_name.split("/")[1] + f"_{data_args.dataset_subset}",
     )
 
-
-    column_names = dataset["train"].column_names
 
     if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
         config = MultiModalConfig(
@@ -151,17 +197,11 @@ def main():
     else:
         checkpoint_path = model_args.model_name_or_path
     
-    if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
-
-        model = CustomMultiModalForClassification(config)
-    else:
-        model = CLIPForMultimodalClassification.from_pretrained(
+    # config = 
+    model = Qwen2_5_VLForMultimodalClassification.from_pretrained(
             checkpoint_path,
             cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            config=config,
-        )
+        ) 
 
     model_xavier_init(config, model, model_args)
     
@@ -169,42 +209,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_loader, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
     )
-
-    future_extractor_loader = model_args.vision_model_name_or_path if model_args.vision_model_name_or_path is not None else model_args.model_name_or_path
-    # Load feature_extractor, in this script we only use this to get the mean and std for normalization.
-    feature_extractor = AutoFeatureExtractor.from_pretrained(
-        future_extractor_loader,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
-    image_mean = feature_extractor.image_mean
-    image_std = feature_extractor.image_std
-
-    import pdb; pdb.set_trace()  # Debugging line, remove in production
-
-    normalize = Normalize(mean=image_mean, std=image_std)
-    
-    image_size = config.vision_config.image_size
-    crop_size = (image_size, image_size)
-    train_transforms = Compose(
-            [
-                RandomResizedCrop(crop_size),
-                RandomHorizontalFlip(),
-                ToTensor(),
-                normalize,
-            ]
-        )
-
-    val_transforms = Compose(
-            [
-                Resize(image_size),
-                CenterCrop(crop_size),
-                ToTensor(),
-                normalize,
-            ]
-        )
-
+   
     # Preprocessing the datasets.
     # We need to tokenize input captions and transform the images.
     def tokenize_texts(examples):
@@ -214,44 +219,75 @@ def main():
         if data_args.image_caption is not None: 
             captions = [inp + "[CPT]" + cpt  for inp, cpt in zip(captions, examples[data_args.image_caption])]
 
-        text_inputs = tokenizer(captions, max_length=tokenizer.model_max_length, padding="max_length", truncation=True)
+        text_inputs = tokenizer(captions, max_length=data_args.max_seq_length, padding="max_length", truncation=True)
     
         examples["input_ids"] = text_inputs.input_ids
         examples["attention_mask"] = text_inputs.attention_mask
         examples["label"] = [caption for caption in examples[data_args.target_column]]
         return examples
-    
-    def apply_transforms_train(examples):
+
+    processor = AutoProcessor.from_pretrained(model_args.model_name_or_path)
+
+    not_remove_columns = [data_args.image_column, data_args.target_column, data_args.id_column]
+
+
+    def convert_to_conversation(text, image):
+
+        conversation = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image,
+                    },
+                    {"type": "text", "text": text},
+                ],
+            }
+        ]
+        return conversation
+
+
+    transform_image = Compose(
+            [
+                Resize(224),
+                CenterCrop(crop_size),
+            ]
+        )
+
+    def preprocessing(examples):
+
         pixel_values = [
             train_transforms(img.convert("RGB"))
             for img in examples[data_args.image_column]
         ]
 
-        return {
-            "input_ids":      examples["input_ids"],
-            "attention_mask": examples["attention_mask"],
-            "labels":         examples[data_args.target_column],
-            "pixel_values":   pixel_values,
-            "instance_ids": examples[data_args.id_column],
-        }
-    
-    def apply_transforms_val(examples):
-        pixel_values = [
-            val_transforms(img.convert("RGB"))
-            for img in examples[data_args.image_column]
-        ]
-        return {
-            "input_ids":      examples["input_ids"],
-            "attention_mask": examples["attention_mask"],
-            "labels":         examples[data_args.target_column],
-            "pixel_values":   pixel_values,
-            "instance_ids": examples[data_args.id_column],
-        }
-    
-    
-    not_remove_columns = [data_args.image_column, data_args.target_column, data_args.id_column]
-    
 
+        images = [transform_image(img.convert("RGB")) for img in examples[data_args.image_column]]
+        conversations = [convert_to_conversation(text, image) for text, image in zip(examples[data_args.text_column], images)]
+        image_inputs = [
+            process_vision_info(example)[0]
+            for example
+            in conversations
+        ]
+
+        model_inputs = processor(
+            text=examples[data_args.text_column],
+            images=image_inputs,
+            return_tensors="pt",
+            padding=True
+        )
+
+
+        return {
+            "input_ids": examples["input_ids"],
+            "attention_mask": examples["attention_mask"],
+            "labels": examples["label"],
+            "pixel_values": pixel_values,
+            "image_grid_thw": model_inputs["image_grid_thw"],
+        }
+
+    
     if training_args.do_train:
         if "train" not in dataset:
             raise ValueError("--do_train requires a train dataset")
@@ -259,18 +295,17 @@ def main():
         if data_args.max_train_samples is not None:
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.shuffle(seed=training_args.seed).select(range(max_train_samples))
-    
+
         train_dataset = train_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in not_remove_columns],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
         )
 
         # then tell datasets to apply image transforms at load time
-        train_dataset.set_transform(apply_transforms_train)
+        train_dataset.set_transform(preprocessing)
 
     if training_args.do_eval:
         if "validation" not in dataset:
@@ -284,12 +319,12 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in not_remove_columns],
             load_from_cache_file=False,
-            desc="Running tokenizer on validation dataset",
+            desc="Running tokenizer on eval dataset",
         )
 
-        eval_dataset.set_transform(apply_transforms_val)
+
+        eval_dataset.set_transform(preprocessing)
 
     if training_args.do_predict:
         if "test" not in dataset:
@@ -303,12 +338,11 @@ def main():
             function=tokenize_texts,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=[col for col in column_names if col not in not_remove_columns],
             load_from_cache_file=False,
             desc="Running tokenizer on test dataset",
         )
 
-        test_dataset.set_transform(apply_transforms_val)
+        test_dataset.set_transform(preprocessing)
     
     no_decay = ["bias", "LayerNorm.weight", "layer_norm.weight"]
     optimizer_grouped_parameters = [

@@ -5,6 +5,7 @@ import os
 import json
 import torch
 import wandb
+from functools import partial
 from datasets import load_dataset
 
 from transformers import (
@@ -24,10 +25,10 @@ from torchvision.transforms import (
     ToTensor,
 )
 
-
-from src.utils import compute_metrics, predict_class
 from src.arguments import ModelArguments, DataTrainingArguments
 from models.clip_classifier import CLIPForMultimodalClassification
+from src.utils import compute_metrics, predict_class, set_config_from_args, collate_fn, preprocess_logits_for_metrics
+from models.multimodal_classifier import CustomMultiModalForClassification, MultiModalConfig
 
 
 def main():
@@ -46,23 +47,18 @@ def main():
         examples["labels"] = [label for label in examples[data_args.target_column]]
         return examples
     
-    def preprocess_val(example_batch):
-        """Apply val_transforms across a batch."""
-        example_batch["pixel_values"] = [val_transforms(image.convert("RGB")) for image in example_batch[data_args.image_column]]
-        return example_batch
-    
-    def collate_fn(examples):
-        pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
-        input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
-        attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
-        labels = None if data_args.save_inference else torch.tensor([example["labels"] for example in examples]) 
+    def apply_transforms_val(examples):
+        pixel_values = [
+            val_transforms(img.convert("RGB"))
+            for img in examples[data_args.image_column]
+        ]
         return {
-            "pixel_values": pixel_values,
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
+            "input_ids":      examples["input_ids"],
+            "attention_mask": examples["attention_mask"],
+            "labels":         examples[data_args.target_column],
+            "pixel_values":   pixel_values,
+            "instance_ids": examples[data_args.id_column],
         }
-
     
     wandb.init(mode="disabled")
 
@@ -75,8 +71,8 @@ def main():
             # download_mode="force_redownload",
         )
     
-
     split_dataset = raw_datasets[data_args.split]
+    num_labels = len(set(split_dataset[data_args.target_column]))
     
     tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
 
@@ -92,7 +88,7 @@ def main():
 
     config = AutoConfig.from_pretrained(
         model_args.model_name_or_path,
-        num_labels=2, # TODO make it dynamic
+        num_labels=num_labels, 
         cache_dir="../llms",
         trust_remote_code=True,
     )
@@ -121,52 +117,47 @@ def main():
     with open(path_config_json, "r") as f:
         config_json = json.load(f)
         
-    config.num_gcn_layers = config_json["num_gcn_layers"]
-    config.num_text_gcn_layers = config_json["num_text_gcn_layers"]
-    config.num_image_gcn_layers = config_json["num_image_gcn_layers"]
-    config.custom_gcn = config_json["custom_gcn"]
-    config.output_dir = config_json["output_dir"]
-    config.apply_ffw = config_json["apply_ffw"]
-    config.image_caption = config_json["image_caption"]
-    config.soft_labels = config_json["soft_labels"]
-    config.save_affinity = model_args.save_affinity
-    config.batch_size = training_args.per_device_eval_batch_size
-
+    config = set_config_from_args(config, model_args, data_args, training_args, config_json)
+    not_remove_columns = [data_args.image_column, data_args.target_column, data_args.id_column]
     column_names = raw_datasets[data_args.split].column_names
     split_dataset = split_dataset.map(
             function=tokenize_texts,
             batched=True,
-            remove_columns=[col for col in column_names if col not in [data_args.image_column, data_args.target_column, "id"]],
+            remove_columns=[col for col in column_names if col not in not_remove_columns],
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=False,
             desc="Running tokenizer on train dataset",
         )
+    
+    split_dataset.set_transform(apply_transforms_val)
 
-    split_dataset = split_dataset.map(  
-        preprocess_val,
-        batched=True,
-        num_proc=data_args.preprocessing_num_workers,
-        load_from_cache_file=False)
+    if model_args.text_model_name_or_path is not None and model_args.vision_model_name_or_path is not None:
 
+        model = CustomMultiModalForClassification.from_pretrained(checkpoint_path, config=config,)
+    
+    else:
 
-    model = CLIPForMultimodalClassification.from_pretrained(
-        checkpoint_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        config=config,
-    )
+        model = CLIPForMultimodalClassification.from_pretrained(
+            checkpoint_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            config=config,
+        )
+        
     for param in model.parameters(): param.data = param.data.contiguous()
 
     batch_sizes = (
         [training_args.per_device_eval_batch_size]
         if training_args.per_device_eval_batch_size != -1
-        else range(1, 200)
+        else range(1, 120)
     )
     metrics_function = None if data_args.save_inference or config.soft_labels else compute_metrics 
-
+    training_args.remove_unused_columns = False
+    
     for batch_size in batch_sizes:
 
+        print(f"Running inference with batch size: {batch_size}")
         training_args.per_device_eval_batch_size = batch_size
         trainer = Trainer(
             model=model,
@@ -174,6 +165,7 @@ def main():
             train_dataset=None,
             eval_dataset=None,
             compute_metrics=metrics_function,
+            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
             tokenizer=tokenizer,
             data_collator=collate_fn,
         )
@@ -188,10 +180,10 @@ def main():
             os.makedirs(metric_output_path, exist_ok=True)
             # Save the metrics to json 
             metrics_file = os.path.join(metric_output_path, f"{data_args.split}_results_batch{training_args.per_device_eval_batch_size}.json")
+            print(metrics)
             with open(metrics_file, "w") as f:
                 json.dump(metrics, f, indent=4)
 
         
-
 if __name__ == "__main__":
     main()

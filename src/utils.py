@@ -5,10 +5,10 @@ import os
 import math
 import json
 import torch
-import torch.nn as nn
 import numpy as np
+import pandas as pd
 from torch.nn import init
-from scipy.special import softmax
+from scipy.special import expit
 from codecarbon import EmissionsTracker
 from sklearn.metrics import (
     precision_score,
@@ -19,9 +19,9 @@ from sklearn.metrics import (
 )
 
 from transformers import AutoModelForSequenceClassification, EvalPrediction
-from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
+# from models.xlm_roberta_classifier import XLMRobertaForSequenceClassification
 # from models.modernbert_classifier import ModernBertForSequenceClassification
-from models.llama_classifier import LlamaForSequenceClassification
+# from models.llama_classifier import LlamaForSequenceClassification
 
 def get_optimizer_and_scheduler(config, model, train_loader):
     
@@ -41,6 +41,20 @@ def get_optimizer_and_scheduler(config, model, train_loader):
 
 
     return optimizer, scheduler
+
+
+def collate_fn(examples):
+    pixel_values = torch.stack([torch.tensor(example["pixel_values"]) for example in examples])
+    input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
+    attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
+    labels = torch.tensor([example["labels"] for example in examples])
+
+    return {
+        "pixel_values": pixel_values,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+    }
 
 
 def evaluate_model(model_output):
@@ -79,22 +93,26 @@ def predict_class(trainer, predict_dataset, max_predict_samples, training_args, 
     predict_results = trainer.predict(predict_dataset, metric_key_prefix=split)
     test_emissions = test_tracker.stop()
 
-    logits = predict_results.predictions[0]
-    preds = np.argmax(logits, axis=1)
+    probs = predict_results.predictions
+    if probs.ndim > 1:
+        preds = (probs >= 0.5).astype(int)
+    else:
+        preds = (probs > predict_results.metrics[f"{split}_threshold"]).astype(int)
 
     all_pred_dicts = []
-    for i in range(len(logits)):
-        inst_id = predict_dataset["id"][i].split(".")[0]
+    predict_dataset.reset_format()
+    for i in range(len(probs)):
+        inst_id = predict_dataset[training_args.id_column][i].split(".")[0]
         if target_column == "soft_label_task4":
-            yes_prob = logits[i][1].item() 
-            no_prob = 1 - yes_prob
-            value = {"NO": no_prob, "YES": yes_prob}
+            value = probs[i].item() 
         else:
-            value = "YES" if preds[i] == 1 else "NO" 
 
-        pred_dict = {"test_case": "EXIST2025", "id": inst_id, "value": value}
-        # if split != "test_challenge":
-        #    pred_dict["target_label"] = "YES" if predict_dataset[target_column][i] == 1 else "NO"
+            if probs.ndim > 1:
+                value = preds[i].tolist()
+            else:
+                value = int(preds[i])
+
+        pred_dict = {"id": inst_id, "value": value}
             
         all_pred_dicts.append(pred_dict)
 
@@ -126,23 +144,73 @@ def get_model(model_name, model_kwargs):
     return model
 
 
-def compute_metrics(output: EvalPrediction):
-    logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
-    labels = output.label_ids
-
-
-    preds = np.argmax(logits, axis=1)
-    probs = softmax(logits, axis=1)[:, 1]
-
-    result = {
-        "precision_macro": round(100 * precision_score(labels, preds, average='macro'), 2),
-        "recall_macro": round(100 * recall_score(labels, preds, average='macro'), 2),
-        "F1_macro": round(100 * f1_score(labels, preds, average='macro'), 2),
-        "accuracy": round(100 * accuracy_score(labels, preds), 2),
-        "roc_auc": round(100 * roc_auc_score(labels, probs), 2),
-    }
+def evaluate_thresholds(probs, labels, num=50):
+    """
+    Evaluate metrics at various thresholds and return a DataFrame of results
+    and the best result by accuracy.
+    """
+    thresholds = np.linspace(0, 1, num=num)
+    results = []
+    for x in thresholds:
+        preds = (probs > x).astype(int)
+        results.append({
+            'threshold': round(x, 4),
+            'precision_macro': round(100 * precision_score(labels, preds, average='macro', zero_division=0), 2),
+            'recall_macro': round(100 * recall_score(labels, preds, average='macro', zero_division=0), 2),
+            'F1_macro': round(100 * f1_score(labels, preds, average='macro', zero_division=0), 2),
+            'accuracy': round(100 * accuracy_score(labels, preds), 2),
+            'roc_auc': round(100 * roc_auc_score(labels, probs), 2),
+        })
+    df = pd.DataFrame(results)
+    best = df.loc[df['accuracy'].idxmax()].to_frame().T.iloc[0].to_dict()
     
-    return result
+    return best
+
+
+def preprocess_logits_for_metrics(logits, labels):
+    """
+    Convert raw model logits into a 1-D tensor of positive-class probabilities,
+    detached and moved to CPU so we don’t hold on to any GPU graph.
+    """
+
+    # If Trainer returned a tuple (loss, logits), grab logits:
+    logits = logits[0] if isinstance(logits, tuple) else logits
+    if labels.dim() > 1:
+        probs = expit(logits.detach().cpu())
+    else:
+        probs = torch.softmax(logits, dim=-1)[:, 1].detach().cpu()
+
+    return probs
+
+
+def compute_metrics(eval_pred: EvalPrediction):
+    # eval_pred.predictions is now a 1-D numpy array of positive-class probs
+    probs = eval_pred.predictions
+    labels = eval_pred.label_ids
+    
+    if labels.ndim > 1:
+        preds = (probs >= 0.5).astype(int)
+
+        results = {
+            'precision_macro': round(100 * precision_score(labels, preds,
+                                                        average='macro',
+                                                        zero_division=0), 2),
+            'recall_macro':    round(100 * recall_score(labels, preds,
+                                                        average='macro',
+                                                        zero_division=0), 2),
+            'f1_macro':        round(100 * f1_score(labels, preds,
+                                                    average='macro',
+                                                    zero_division=0), 2),
+            'accuracy':        round(100 * accuracy_score(labels, preds), 2),   
+            'roc_auc_macro':   round(100 * roc_auc_score(labels, preds,
+                                                        average='macro'), 2),
+        }
+    
+    else:
+        # run your threshold sweep
+        results = evaluate_thresholds(probs, labels, num=100)
+
+    return results
 
 
 def init_gcn_layer(layer):
@@ -151,9 +219,103 @@ def init_gcn_layer(layer):
         init.xavier_uniform_(submodule.weight)
 
 
-model_constructors = {
-    "xlm-roberta": XLMRobertaForSequenceClassification,
-    "ModernBERT": None,
-    "Meta-Llama": LlamaForSequenceClassification,
-}
+def set_config_from_args(config, model_args, data_args, training_args, config_json=None):
+    """
+    Populate a configuration object from model, training, and data argument namespaces.
+
+    Args:
+        config: An object with attributes to be set.
+        model_args: Namespace containing model-specific arguments.
+        training_args: Namespace containing training-specific arguments.
+        data_args: Namespace containing data-specific arguments.
+
+    Returns:
+        The updated config object.
+    """
+    if config_json is None:
+        # Training-time initialization
+        # GCN layer settings
+        config.num_gcn_layers = model_args.num_gcn_layers
+        config.num_text_gcn_layers = model_args.num_text_gcn_layers
+        config.num_image_gcn_layers = model_args.num_image_gcn_layers
+        config.custom_gcn = model_args.custom_gcn
+        config.save_affinity = model_args.save_affinity
+
+        # Feature fusion and output settings
+        config.apply_ffw = model_args.apply_ffw
+        config.modality_fuser = model_args.modality_fuser
+
+        # Training output and batch size
+        config.output_dir = training_args.output_dir
+        config.batch_size = training_args.per_device_eval_batch_size
+
+        config.image_caption = data_args.image_caption
+        config.soft_labels = True if "soft" in data_args.target_column else False
+        config.multi_label = data_args.multi_label
+
+    else:
+        # Inference-time initialization from JSON
+        config.num_gcn_layers = config_json["num_gcn_layers"]
+        config.num_text_gcn_layers = config_json["num_text_gcn_layers"]
+        config.num_image_gcn_layers = config_json["num_image_gcn_layers"]
+        config.custom_gcn = config_json["custom_gcn"]
+        config.modality_fuser = config_json['modality_fuser']
+
+        # Output and inference settings
+        config.output_dir = config_json.get("output_dir")
+        config.apply_ffw = config_json.get("apply_ffw")
+        config.image_caption = config_json.get("image_caption")
+        config.soft_labels = config_json.get("soft_labels")
+
+        # Use values from model_args / training_args when present
+        config.save_affinity = model_args.save_affinity
+        config.batch_size = training_args.per_device_eval_batch_size
+        config.multi_label = data_args.multi_label
+
+    return config
+
+def model_xavier_init(config, model, model_args):
+    # try to init parameters in a different way
+
+    if model_args.classifier_xavier_init:
+        init.xavier_uniform_(model.classifier.weight)
+
+    if model_args.checkpoint_path is None:
+        if config.num_gcn_layers > 0:
+            init.xavier_uniform_(model.rs_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.rs_gcn_layers[0].W_r.weight)
+
+        if config.num_text_gcn_layers > 0:
+            init.xavier_uniform_(model.text_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.text_gcn_layers[0].W_r.weight)
+        if config.num_image_gcn_layers > 0:
+            init.xavier_uniform_(model.image_gcn_layers[0].phi.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].psi_param.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].W_g.weight)
+            init.xavier_uniform_(model.image_gcn_layers[0].W_r.weight)
+        
+        if config.modality_fuser == "mfb":
+            init.xavier_uniform_(model.modality_fuser.lin_text.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_image.weight)
+        elif config.modality_fuser == "gmu":
+            init.xavier_uniform_(model.modality_fuser.lin_t.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_v.weight)
+            init.xavier_uniform_(model.modality_fuser.lin_gate.weight)
+        elif config.modality_fuser == "cross_attn":
+            init.xavier_uniform_(model.modality_fuser.query_lin.weight)
+            init.xavier_uniform_(model.modality_fuser.key_lin.weight)
+            init.xavier_uniform_(model.modality_fuser.value_lin.weight)
+
+    for param in model.parameters(): param.data = param.data.contiguous()
+
+
+# model_constructors = {
+#     "xlm-roberta": XLMRobertaForSequenceClassification,
+#     "ModernBERT": None,
+#     "Meta-Llama": LlamaForSequenceClassification,
+# }
 
