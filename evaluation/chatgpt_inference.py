@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import argparse
+import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from openai import OpenAI
@@ -127,24 +128,48 @@ def run_on_dataset(dataset, completer, client):
 def evaluate_results():
     use_text = "use_text" if args.use_text else "no_text"
     output_path = os.path.join(args.output_dir, f"{args.model}_{use_text}.json")
-    # read path
+    # read predictions
     with open(output_path, "r") as f:
         results = json.load(f)
 
+    # pull the test split (so we can get 'lang' in the same order)
+    test = load_dataset(args.dataset_name)["test"]
+
     labels = []
-    predictions = []
+    preds = []
     for result in results:
         labels.append(result["label"])
         if "exist" in args.dataset_name:
-            predicted_label = 0 if "non-sexist" in result["prediction"].strip().lower() else 1
+            p = 0 if "non-sexist" in result["prediction"].strip().lower() else 1
         else:
-            predicted_label = 0 if "non-misogynistic" in result["prediction"].strip().lower() else 1
-        predictions.append(predicted_label)
+            p = 0 if "non-misogynistic" in result["prediction"].strip().lower() else 1
+        preds.append(p)
 
-    f1_macro = round(f1_score(labels, predictions, average='macro', zero_division=0), 3)
-    accuracy = round(accuracy_score(labels, predictions), 3)
+    # build a DataFrame tying each prediction back to its language
+    df = pd.DataFrame({
+        "ground_truth": labels,
+        "prediction": preds,
+        "lang": [ex["lang"] for ex in test]  # assumes test examples are in the same order
+    })
 
-    print(f"F1 Macro: {f1_macro}, Accuracy: {accuracy}")
+    for lang in ["en", "es"]:
+        sub = df[df["lang"] == lang]
+        f1 = f1_score(sub["ground_truth"], sub["prediction"],
+                      average="macro", zero_division=0)
+        acc = accuracy_score(sub["ground_truth"], sub["prediction"])
+        print(
+            f"{lang.capitalize():>8} — "
+            f"F1-macro: {f1:.3f}, "
+            f"Accuracy: {acc:.3f}, "
+        )
+
+    f1 = f1_score(df["ground_truth"], df["prediction"],
+                  average="macro", zero_division=0)
+    acc = accuracy_score(df["ground_truth"], df["prediction"])
+
+    print("Overall — ",
+          f"F1-macro: {f1:.3f}, "
+          f"Accuracy: {acc:.3f}, ")
 
 
 def main():
