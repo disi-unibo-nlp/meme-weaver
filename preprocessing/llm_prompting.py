@@ -133,7 +133,7 @@ if __name__ == "__main__":
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("--meme-dir", required=True, type=str, help="Path to where the directory containing meme images is")
-    parser.add_argument('--huggingface-dataset', type=lambda x: bool(strtobool(x)), default=False, help='In case the dataset comes from HuggingFace')
+    parser.add_argument('--huggingface-dataset', type=lambda x: bool(strtobool(x)), default=True, help='In case the dataset comes from HuggingFace')
     parser.add_argument("--model-id", default="Qwen/Qwen2.5-VL-7B-Instruct", type=str, help="HuggingFace Model ID")
     parser.add_argument('--quant', type=lambda x: bool(strtobool(x)), default=False, help='In case model should be quantized')
     parser.add_argument('--fix-issues', type=lambda x: bool(strtobool(x)), default=False, help='In case you need to fix issues in already processed dataset')
@@ -141,11 +141,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if 'mami' in args.meme_dir.lower():
+        label = 'misogynistic'
+    else:
+        label = 'sexist'
+    
     # -- prompt set
     prompts = {
-        'A': 'Describe this image without including what text reads and credit sources.',
-        # 'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content. Please be concise (no more than three sentences) while including all relevant information.',
-        'B': 'You are a helpful assistant designed to detect sexist expressions or behaviours in a meme, i.e., it is sexist itself, describes a sexist situation or criticizes a sexist behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain sexist content.',
+        'A': f'Describe this image without including what text reads and credit sources.',
+        'B': f'You are a helpful assistant designed to detect {label} expressions or behaviours in a meme, i.e., it is {label} itself, describes a {label} situation or criticizes a {label} behaviour. Infer the implicit semantic information of the meme, considering that it may or may not contain {label} content. Please be concise (no more than three sentences) while including all relevant information.',
     }
 
     # -- llm model building
