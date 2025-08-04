@@ -11,6 +11,11 @@ Set up a **Docker container** to install the necessary dependencies as follows:
 docker build -t memeweaver .
 ```
 
+Install requirements:
+
+```bash
+pip install -r requirements.txt
+```
 Execute the container using `docker run.
 ```bash
 docker run -v /path_to/memeweaver:/memeweaver --rm --gpus device=$CUDA_VISIBLE_DEVICES -it memeweaver bash
