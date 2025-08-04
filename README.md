@@ -26,7 +26,7 @@ docker run -v /path_to/memeweaver:/memeweaver --rm --gpus device=$CUDA_VISIBLE_D
 
 * **Captions generation**
   
-First of all, you must upload the MAMI and EXIST datasets to a Hugging Face repository. Once the datasets are available, you can run the script below to generate a .csv file containing the image caption responses from the language model for each of the prompts proposed in our paper:
+First of all, you must upload the MAMI and EXIST datasets to a Hugging Face repository. You can find the upload logic in `push_to_huggingface.py`. Once the datasets are available, you can run the script below to generate a .csv file containing the image caption responses from the language model for each of the prompts proposed in our paper:
 
 ```bash
 python preprocessing/llm_prompting.py --meme-dir ${HUGGINGFACE_DATASET} --output-path ${CSV_OUTPUT_PATH}
@@ -34,7 +34,7 @@ python preprocessing/llm_prompting.py --meme-dir ${HUGGINGFACE_DATASET} --output
 , where `${HUGGINGFACE_DATASET}` and `${CSV_OUTPUT_PATH}` refer to the path of the previously uploaded dataset and the desired output path for the generated .csv file, respectively.
 
 ## 🔧 MemeWeaver Fine-Tuning 
-Make sure the repository name matches the value you pass to the `--dataset_name` parameter in `commands/train_multimodal.sh`. You can find the upload logic in `push_to_huggingface.py`. Once the datasets are available on Hugging Face, initiate fine-tuning of CLIP (MemeWeaver) on EXIST and MAMI by running:
+Make sure the repository name matches the value you pass to the `--dataset_name` parameter in `commands/train_multimodal.sh`. Once the datasets are available on Hugging Face, initiate fine-tuning of CLIP (MemeWeaver) on EXIST and MAMI by running:
 
 ```bash
 sh commands/train_multimodal.sh
