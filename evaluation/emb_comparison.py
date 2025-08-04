@@ -204,7 +204,7 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", default="output_mami")
-    parser.add_argument("--dataset", default="paoloitaliani/mami")
+    parser.add_argument("--dataset", required=True)
     parser.add_argument("--run_name")
     parser.add_argument("--id_column", default="file_name")
     parser.add_argument("--target_column", default="label")

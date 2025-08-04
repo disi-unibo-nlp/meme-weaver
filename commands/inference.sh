@@ -6,7 +6,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=3 python3 eva
 --run_name clip-vit-large_batch20_5e-6lr_1gcn_xuinit_mfb \
 --model_name_or_path openai/clip-vit-large-patch14 \
 --output_dir output_mami \
---dataset_name paoloitaliani/mami \
+--dataset_name mami_hf_repo \
 --target_column label \
 --text_column text \
 --image_column image_path \
@@ -19,7 +19,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=3 python3 eva
 # --run_name clip-vit-large_batch64_5e-6lr_1gcn_xuinit_mami20bs_captionPA_concat \
 # --model_name_or_path openai/clip-vit-large-patch14 \
 # --output_dir output_hard_label_task4 \
-# --dataset_name paoloitaliani/memes_exist2024 \
+# --dataset_name exist_hf_repo \
 # --target_column hard_label_task4 \
 # --text_column text_en \
 # --image_column image \

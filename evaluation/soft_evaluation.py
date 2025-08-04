@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_name", required=True)
     parser.add_argument("--output_dir", default="output_hard_label_task4")
-    parser.add_argument("--dataset_name", default="paoloitaliani/memes_exist2024")
+    parser.add_argument("--dataset_name", required=True)
 
     args = parser.parse_args()
     main()

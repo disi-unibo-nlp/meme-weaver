@@ -73,7 +73,7 @@ def compute_distribution(elements):
 
 def main():
 
-    dataset = load_dataset("paoloitaliani/mami", dataset_subset=None)
+    dataset = load_dataset("datataset_gf_repo", dataset_subset=None)
 
     affinity_files = os.listdir(os.path.join(args.output_dir, args.run_name, f"affinity_matrices_{args.batch_size}_bs"))
     all_affinity_data = []

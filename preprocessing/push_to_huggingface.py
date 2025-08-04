@@ -180,7 +180,7 @@ def process_exist_2024():
     # Now, push the dataset to your Hugging Face Hub repository.
     # Replace "your_dataset_name" with your desired repository name.
     # You can also pass your Hugging Face token here or have it set in your environment.
-    dataset.push_to_hub("paoloitaliani/memes_exist2024")
+    dataset.push_to_hub("exist_hf_repo")
 
 
 
@@ -266,7 +266,7 @@ def process_mmhs150k():
         "test": dataset_test,
     })
 
-    dataset.push_to_hub("paoloitaliani/mmhs150k")
+    dataset.push_to_hub("mmhs150k_hf_repo")
 
 def get_multilabel_idx(row):
     if row["label"] == 0:
@@ -318,7 +318,7 @@ def process_mami():
         "test": dataset_test,
     })
 
-    dataset.push_to_hub("paoloitaliani/mami")
+    dataset.push_to_hub("mami_hf_repo")
 
 
 def main():
